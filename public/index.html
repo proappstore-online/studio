@@ -67,13 +67,27 @@
   .admin-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1rem; }
   .admin-header h1 { font-size: 1.5rem; margin: 0; }
   .admin-header small { color: var(--muted); font-size: .85rem; }
-  .class-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+  .class-list, .schedule-list, .session-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
   .class-card { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: .5rem; padding: .75rem 1rem; background: white; border: 1px solid var(--border); border-radius: .5rem; }
   .class-card .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
   .class-name { display: flex; align-items: center; gap: .5rem; font-weight: 600; }
-  .class-meta { color: var(--muted); font-size: .85rem; }
+  .class-meta, .class-category { color: var(--muted); font-size: .85rem; }
+  .class-category { text-transform: capitalize; margin-left: 1.25rem; }
   .danger { background: white; color: #991b1b; border: 1px solid #fecaca; }
   .danger:hover { background: #fef2f2; }
+  .dow-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: .25rem; }
+  .dow-grid label { display: flex; flex-direction: column; align-items: center; gap: .25rem; padding: .5rem .25rem; background: white; border: 1px solid var(--border); border-radius: .375rem; cursor: pointer; font-size: .75rem; color: var(--muted); }
+  .dow-grid input { margin: 0; }
+  .dow-grid label:has(input:checked) { background: var(--accent); color: white; border-color: var(--accent); }
+  .schedule-card { padding: .75rem 1rem; background: white; border: 1px solid var(--border); border-radius: .5rem; display: grid; grid-template-columns: 1fr auto; gap: .5rem; align-items: center; }
+  .schedule-card strong { display: block; }
+  .schedule-card small { color: var(--muted); font-size: .85rem; }
+  .day-group { margin-bottom: 1rem; }
+  .day-group h3 { font-size: .85rem; font-weight: 600; color: var(--muted); margin: 0 0 .5rem; text-transform: uppercase; letter-spacing: .03em; }
+  .session-card { display: grid; grid-template-columns: auto 1fr; gap: .75rem; padding: .65rem 1rem; background: white; border: 1px solid var(--border); border-radius: .5rem; align-items: center; }
+  .session-card .time { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .session-card .info { color: var(--muted); font-size: .85rem; }
+  .session-card .info strong { color: var(--fg); font-weight: 500; display: block; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -181,6 +195,11 @@
       <label for="class-name">Name</label>
       <input id="class-name" name="className" type="text" required placeholder="Vinyasa Flow" maxlength="80">
 
+      <label for="class-category">Category</label>
+      <select id="class-category" required>
+        <option value="" disabled selected>Pick one…</option>
+      </select>
+
       <div class="row">
         <div style="display:grid;gap:.5rem">
           <label for="class-duration">Duration (minutes)</label>
@@ -200,8 +219,57 @@
 
     <div id="admin-status" class="status" hidden></div>
 
-    <h2 style="font-size:1rem;margin-top:2rem;color:var(--muted)">Coming next</h2>
-    <p style="color:var(--muted);font-size:.9rem;margin:0">Sessions on a weekly calendar, instructors, clients, bookings.</p>
+    <h2 style="margin-top:2rem">Schedules</h2>
+    <p style="color:var(--muted);font-size:.85rem;margin:0 0 .75rem">
+      Recurring weekly classes. Sessions for the next 4 weeks are generated automatically.
+    </p>
+    <div id="schedules-empty" class="empty" hidden>
+      No schedules yet. Add one below — pick a class type, days of the week, and a start time.
+    </div>
+    <ul id="schedules-list" class="schedule-list" hidden></ul>
+
+    <h2 style="font-size:1rem;margin-top:1.5rem">Add a recurring schedule</h2>
+    <form id="schedule-form" autocomplete="off">
+      <label for="schedule-class">Class type</label>
+      <select id="schedule-class" required>
+        <option value="" disabled selected>Pick a class type…</option>
+      </select>
+
+      <label>Days of the week</label>
+      <div class="dow-grid" id="schedule-dow">
+        <label><input type="checkbox" name="dow" value="1">Mon</label>
+        <label><input type="checkbox" name="dow" value="2">Tue</label>
+        <label><input type="checkbox" name="dow" value="3">Wed</label>
+        <label><input type="checkbox" name="dow" value="4">Thu</label>
+        <label><input type="checkbox" name="dow" value="5">Fri</label>
+        <label><input type="checkbox" name="dow" value="6">Sat</label>
+        <label><input type="checkbox" name="dow" value="0">Sun</label>
+      </div>
+
+      <div class="row">
+        <div style="display:grid;gap:.5rem">
+          <label for="schedule-time">Start time</label>
+          <input id="schedule-time" type="time" required value="18:00">
+        </div>
+        <div style="display:grid;gap:.5rem">
+          <label for="schedule-capacity">Capacity</label>
+          <input id="schedule-capacity" type="number" placeholder="(uses class default)">
+        </div>
+      </div>
+
+      <label for="schedule-location">Location (optional)</label>
+      <input id="schedule-location" type="text" placeholder="Main studio · Online" maxlength="80">
+
+      <button type="submit">Add schedule</button>
+    </form>
+
+    <div id="schedule-status" class="status" hidden></div>
+
+    <h2 style="margin-top:2rem">Upcoming sessions (next 14 days)</h2>
+    <div id="sessions-empty" class="empty" hidden>
+      No upcoming sessions. Add a schedule above to generate them.
+    </div>
+    <div id="sessions-list" class="session-list" hidden></div>
   </section>
 </main>
 
@@ -228,6 +296,45 @@
   const studiosEmpty = document.getElementById('studios-empty');
   const classesList = document.getElementById('classes-list');
   const classesEmpty = document.getElementById('classes-empty');
+  const schedulesList = document.getElementById('schedules-list');
+  const schedulesEmpty = document.getElementById('schedules-empty');
+  const sessionsList = document.getElementById('sessions-list');
+  const sessionsEmpty = document.getElementById('sessions-empty');
+  const scheduleStatus = document.getElementById('schedule-status');
+
+  // Mindbody-inspired category list. Stored as the slug; rendered as the label.
+  const CATEGORIES = [
+    ['yoga', 'Yoga'],
+    ['pilates', 'Pilates'],
+    ['hiit', 'HIIT'],
+    ['cycling', 'Cycling / Spin'],
+    ['strength', 'Strength training'],
+    ['cardio', 'Cardio'],
+    ['dance', 'Dance'],
+    ['barre', 'Barre'],
+    ['martial-arts', 'Martial arts'],
+    ['boxing', 'Boxing / Kickboxing'],
+    ['meditation', 'Meditation / Mindfulness'],
+    ['stretching', 'Stretching / Mobility'],
+    ['functional', 'Functional training'],
+    ['prenatal', 'Prenatal'],
+    ['kids', 'Kids / Family'],
+    ['other', 'Other'],
+  ];
+  const CATEGORY_LABEL = Object.fromEntries(CATEGORIES);
+  const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  function populateCategoryDropdown() {
+    const sel = document.getElementById('class-category');
+    if (!sel || sel.dataset.populated) return;
+    for (const [slug, label] of CATEGORIES) {
+      const opt = document.createElement('option');
+      opt.value = slug;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    }
+    sel.dataset.populated = '1';
+  }
 
   let session = null;
 
@@ -540,19 +647,24 @@
     document.getElementById('admin-studio-name').textContent = studio.name;
     document.getElementById('admin-studio-slug').textContent = '/' + studio.slug;
     document.getElementById('admin-public-link').href = '/' + studio.slug;
+    populateCategoryDropdown();
     adminView.hidden = false;
     document.title = studio.name + ' · admin — studio';
 
-    await loadClasses();
+    await Promise.all([loadClasses(), loadSchedules(), loadSessions()]);
   }
+
+  let classTypesCache = [];
 
   async function loadClasses() {
     if (!currentStudio) return;
     const { rows } = await dbQuery(
-      'SELECT id, name, duration_minutes, default_capacity, color FROM class_types WHERE tenant_id = ? ORDER BY name',
+      'SELECT id, name, category, duration_minutes, default_capacity, color FROM class_types WHERE tenant_id = ? ORDER BY name',
       [currentStudio.id],
     );
-    renderClasses(rows);
+    classTypesCache = rows ?? [];
+    renderClasses(classTypesCache);
+    populateScheduleClassDropdown();
   }
 
   function renderClasses(rows) {
@@ -579,6 +691,17 @@
       name.appendChild(dot);
       name.appendChild(label);
 
+      // Category label on its own line under the name.
+      const catWrap = document.createElement('div');
+      const cat = document.createElement('span');
+      cat.className = 'class-category';
+      cat.textContent = CATEGORY_LABEL[r.category] ?? r.category ?? 'Uncategorized';
+      catWrap.appendChild(cat);
+
+      const left = document.createElement('div');
+      left.appendChild(name);
+      left.appendChild(catWrap);
+
       const meta = document.createElement('div');
       meta.className = 'class-meta';
       meta.textContent = r.duration_minutes + ' min · cap ' + r.default_capacity;
@@ -589,10 +712,220 @@
       delBtn.textContent = 'Delete';
       delBtn.addEventListener('click', () => deleteClass(r));
 
-      li.appendChild(name);
+      li.appendChild(left);
       li.appendChild(meta);
       li.appendChild(delBtn);
       classesList.appendChild(li);
+    }
+  }
+
+  function populateScheduleClassDropdown() {
+    const sel = document.getElementById('schedule-class');
+    // Wipe + repopulate (class types may have been added/removed).
+    sel.replaceChildren();
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    placeholder.textContent = classTypesCache.length
+      ? 'Pick a class type…'
+      : 'Add a class type first';
+    sel.appendChild(placeholder);
+    for (const c of classTypesCache) {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.name;
+      sel.appendChild(opt);
+    }
+    sel.disabled = classTypesCache.length === 0;
+  }
+
+  // -------------------------------------------------------------------------
+  // Schedules + session generation (Mindbody-style)
+  // -------------------------------------------------------------------------
+
+  async function loadSchedules() {
+    if (!currentStudio) return;
+    const { rows } = await dbQuery(
+      `SELECT s.id, s.class_type_id, s.days_of_week, s.start_time, s.duration_minutes,
+              s.capacity, s.location, s.starts_on, s.ends_on, s.status,
+              c.name AS class_name, c.color AS class_color
+       FROM schedules s
+       LEFT JOIN class_types c ON c.id = s.class_type_id AND c.tenant_id = s.tenant_id
+       WHERE s.tenant_id = ?
+       ORDER BY s.created_at DESC`,
+      [currentStudio.id],
+    );
+    renderSchedules(rows ?? []);
+  }
+
+  function renderSchedules(rows) {
+    schedulesList.replaceChildren();
+    if (rows.length === 0) {
+      schedulesEmpty.hidden = false;
+      schedulesList.hidden = true;
+      return;
+    }
+    schedulesEmpty.hidden = true;
+    schedulesList.hidden = false;
+    for (const r of rows) {
+      const li = document.createElement('li');
+      li.className = 'schedule-card';
+
+      const left = document.createElement('div');
+      const strong = document.createElement('strong');
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.display = 'inline-block';
+      dot.style.width = '10px';
+      dot.style.height = '10px';
+      dot.style.borderRadius = '50%';
+      dot.style.background = r.class_color || 'var(--accent)';
+      dot.style.marginRight = '.5rem';
+      strong.appendChild(dot);
+      strong.appendChild(document.createTextNode(r.class_name ?? 'Unknown class'));
+      const small = document.createElement('small');
+      small.textContent = formatScheduleSummary(r);
+      left.appendChild(strong);
+      left.appendChild(small);
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'card-btn danger btn-schedule-delete';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', () => deleteSchedule(r));
+
+      li.appendChild(left);
+      li.appendChild(delBtn);
+      schedulesList.appendChild(li);
+    }
+  }
+
+  function formatScheduleSummary(s) {
+    const days = s.days_of_week
+      .split(',')
+      .map((d) => DAY_LABELS[Number(d)])
+      .filter(Boolean)
+      .join(', ');
+    const parts = [days + ' at ' + s.start_time, s.duration_minutes + ' min', 'cap ' + s.capacity];
+    if (s.location) parts.push(s.location);
+    return parts.join(' · ');
+  }
+
+  async function deleteSchedule(s) {
+    if (!currentStudio) return;
+    if (!confirm('Delete this schedule? Upcoming sessions generated from it will also be removed.')) {
+      return;
+    }
+    try {
+      // Delete future sessions tied to this schedule first, then the schedule itself.
+      await dbExecute(
+        'DELETE FROM sessions WHERE tenant_id = ? AND schedule_id = ? AND starts_at >= ?',
+        [currentStudio.id, s.id, Date.now()],
+      );
+      await dbExecute('DELETE FROM schedules WHERE id = ? AND tenant_id = ?', [s.id, currentStudio.id]);
+      await Promise.all([loadSchedules(), loadSessions()]);
+    } catch (err) {
+      flash(scheduleStatus, 'err', String(err));
+    }
+  }
+
+  /**
+   * Generate session timestamps from a schedule's first occurrence onward,
+   * for `weeks` weeks. Times are interpreted in the studio's local timezone
+   * (best-effort: uses the browser's Date math, assuming owner == studio tz).
+   */
+  function generateSessionTimestamps(s, weeks) {
+    const days = s.days_of_week.split(',').map(Number).filter((d) => d >= 0 && d <= 6);
+    const [hh, mm] = s.start_time.split(':').map(Number);
+    const out = [];
+    const now = Date.now();
+    const horizon = now + weeks * 7 * 24 * 60 * 60 * 1000;
+    // Anchor: max(starts_on, today)
+    const anchor = new Date(Math.max(now, s.starts_on ?? now));
+    anchor.setHours(0, 0, 0, 0);
+    for (let i = 0; i < weeks * 7; i++) {
+      const d = new Date(anchor);
+      d.setDate(d.getDate() + i);
+      if (!days.includes(d.getDay())) continue;
+      d.setHours(hh, mm, 0, 0);
+      const starts_at = d.getTime();
+      if (starts_at < now) continue;
+      if (s.ends_on && starts_at > s.ends_on) break;
+      if (starts_at > horizon) break;
+      out.push(starts_at);
+    }
+    return out;
+  }
+
+  async function loadSessions() {
+    if (!currentStudio) return;
+    const now = Date.now();
+    const horizon = now + 14 * 24 * 60 * 60 * 1000;
+    const { rows } = await dbQuery(
+      `SELECT s.id, s.starts_at, s.ends_at, s.capacity, s.location, s.status,
+              c.name AS class_name, c.color AS class_color, c.category AS class_category
+       FROM sessions s
+       LEFT JOIN class_types c ON c.id = s.class_type_id AND c.tenant_id = s.tenant_id
+       WHERE s.tenant_id = ? AND s.starts_at >= ? AND s.starts_at < ? AND s.status = 'scheduled'
+       ORDER BY s.starts_at`,
+      [currentStudio.id, now, horizon],
+    );
+    renderSessions(rows ?? []);
+  }
+
+  function renderSessions(rows) {
+    sessionsList.replaceChildren();
+    if (rows.length === 0) {
+      sessionsEmpty.hidden = false;
+      sessionsList.hidden = true;
+      return;
+    }
+    sessionsEmpty.hidden = true;
+    sessionsList.hidden = false;
+
+    // Group by local date string.
+    const groups = new Map();
+    const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+    const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+    for (const r of rows) {
+      const d = new Date(r.starts_at);
+      const key = d.toDateString();
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    }
+
+    for (const [key, items] of groups) {
+      const wrap = document.createElement('div');
+      wrap.className = 'day-group';
+      const h3 = document.createElement('h3');
+      h3.textContent = dayFmt.format(new Date(key));
+      wrap.appendChild(h3);
+      const inner = document.createElement('div');
+      inner.style.display = 'grid';
+      inner.style.gap = '.5rem';
+      for (const r of items) {
+        const card = document.createElement('div');
+        card.className = 'session-card';
+        const time = document.createElement('div');
+        time.className = 'time';
+        time.textContent = timeFmt.format(new Date(r.starts_at));
+        const info = document.createElement('div');
+        info.className = 'info';
+        const cls = document.createElement('strong');
+        cls.textContent = r.class_name ?? 'Class';
+        const meta = document.createElement('span');
+        const parts = [r.capacity + ' spots'];
+        if (r.location) parts.push(r.location);
+        meta.textContent = parts.join(' · ');
+        info.appendChild(cls);
+        info.appendChild(meta);
+        card.appendChild(time);
+        card.appendChild(info);
+        inner.appendChild(card);
+      }
+      wrap.appendChild(inner);
+      sessionsList.appendChild(wrap);
     }
   }
 
@@ -802,6 +1135,11 @@
     if (!currentStudio) return;
     const name = document.getElementById('class-name').value.trim();
     if (!name) return;
+    const category = document.getElementById('class-category').value;
+    if (!category) {
+      flash(adminStatus, 'err', 'Pick a category.');
+      return;
+    }
     const duration = parseInt(document.getElementById('class-duration').value, 10);
     const capacity = parseInt(document.getElementById('class-capacity').value, 10);
     const color = document.getElementById('class-color').value;
@@ -816,13 +1154,12 @@
     const id = crypto.randomUUID();
     try {
       await dbExecute(
-        `INSERT INTO class_types (id, tenant_id, name, duration_minutes, default_capacity, color, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, currentStudio.id, name, duration, capacity, color, Date.now()],
+        `INSERT INTO class_types (id, tenant_id, name, category, duration_minutes, default_capacity, color, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, currentStudio.id, name, category, duration, capacity, color, Date.now()],
       );
       flash(adminStatus, 'ok', 'Added ' + name + '.');
       document.getElementById('class-form').reset();
-      // Restore default values after reset (form.reset() also clears them).
       document.getElementById('class-duration').value = 60;
       document.getElementById('class-capacity').value = 20;
       document.getElementById('class-color').value = '#6366f1';
@@ -831,6 +1168,124 @@
       flash(adminStatus, 'err', String(err));
     }
   });
+
+  document.getElementById('schedule-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearFlash(scheduleStatus);
+    if (!currentStudio) return;
+    const classTypeId = document.getElementById('schedule-class').value;
+    if (!classTypeId) {
+      flash(scheduleStatus, 'err', 'Pick a class type.');
+      return;
+    }
+    const classType = classTypesCache.find((c) => c.id === classTypeId);
+    if (!classType) {
+      flash(scheduleStatus, 'err', 'Class type not found — reload the page.');
+      return;
+    }
+
+    const dowEls = document.querySelectorAll('#schedule-dow input[type=checkbox]:checked');
+    const days = [...dowEls].map((el) => el.value).join(',');
+    if (!days) {
+      flash(scheduleStatus, 'err', 'Pick at least one day of the week.');
+      return;
+    }
+
+    const startTime = document.getElementById('schedule-time').value; // "HH:MM"
+    if (!/^\d{1,2}:\d{2}$/.test(startTime)) {
+      flash(scheduleStatus, 'err', 'Start time must be HH:MM.');
+      return;
+    }
+    const capacityRaw = document.getElementById('schedule-capacity').value.trim();
+    const capacity = capacityRaw ? parseInt(capacityRaw, 10) : classType.default_capacity;
+    if (!Number.isFinite(capacity) || capacity < 1 || capacity > 200) {
+      flash(scheduleStatus, 'err', 'Capacity must be between 1 and 200.');
+      return;
+    }
+    const location = document.getElementById('schedule-location').value.trim() || null;
+
+    const scheduleId = crypto.randomUUID();
+    const now = Date.now();
+    const schedule = {
+      id: scheduleId,
+      class_type_id: classTypeId,
+      days_of_week: days,
+      start_time: startTime,
+      duration_minutes: classType.duration_minutes,
+      capacity,
+      starts_on: now,
+      ends_on: null,
+    };
+
+    const timestamps = generateSessionTimestamps(schedule, 4);
+    try {
+      // Insert the schedule + all generated sessions in a single batch so the
+      // user either sees the schedule + its sessions or nothing — no half state.
+      const statements = [
+        {
+          sql: `INSERT INTO schedules
+                  (id, tenant_id, class_type_id, instructor_id, days_of_week, start_time,
+                   duration_minutes, capacity, location, is_virtual, meeting_url,
+                   starts_on, ends_on, status, created_at)
+                VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, NULL, ?, NULL, 'active', ?)`,
+          params: [
+            scheduleId,
+            currentStudio.id,
+            classTypeId,
+            days,
+            startTime,
+            classType.duration_minutes,
+            capacity,
+            location,
+            now,
+            now,
+          ],
+        },
+        ...timestamps.map((ts) => ({
+          sql: `INSERT INTO sessions
+                  (id, tenant_id, class_type_id, instructor_id, starts_at, ends_at,
+                   capacity, location, is_virtual, meeting_url, status, created_at, schedule_id)
+                VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 0, NULL, 'scheduled', ?, ?)`,
+          params: [
+            crypto.randomUUID(),
+            currentStudio.id,
+            classTypeId,
+            ts,
+            ts + classType.duration_minutes * 60_000,
+            capacity,
+            location,
+            now,
+            scheduleId,
+          ],
+        })),
+      ];
+      await dbBatch(statements);
+      flash(
+        scheduleStatus,
+        'ok',
+        'Added schedule — generated ' + timestamps.length + ' sessions for the next 4 weeks.',
+      );
+      document.getElementById('schedule-form').reset();
+      document.getElementById('schedule-time').value = '18:00';
+      await Promise.all([loadSchedules(), loadSessions()]);
+    } catch (err) {
+      flash(scheduleStatus, 'err', String(err));
+    }
+  });
+
+  async function dbBatch(statements) {
+    if (!session) throw new Error('Not signed in.');
+    const res = await fetch(STUDIO_API + '/batch', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + session.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ statements }),
+    });
+    if (!res.ok) throw new Error('db.batch failed: ' + res.status + ' ' + (await res.text()));
+    return await res.json();
+  }
 
   document.getElementById('btn-ai-describe').addEventListener('click', async () => {
     clearFlash(createStatus);

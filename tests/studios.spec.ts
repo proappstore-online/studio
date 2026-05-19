@@ -582,6 +582,7 @@ test.describe('studio admin (/<slug>/admin)', () => {
     await expect(page.locator('#classes-empty')).toBeVisible();
 
     await page.fill('#class-name', 'Vinyasa Flow');
+    await page.selectOption('#class-category', 'yoga');
     await page.getByRole('button', { name: /Add class type/i }).click();
 
     await expect(page.locator('#admin-status')).toContainText(/Added Vinyasa Flow/);
@@ -590,14 +591,61 @@ test.describe('studio admin (/<slug>/admin)', () => {
     expect(insertCall).not.toBeNull();
     const c = insertCall as unknown as { sql: string; params: unknown[] };
     expect(c.sql).toContain('INSERT INTO class_types');
-    // Bindings: id, tenant_id, name, duration_minutes, default_capacity, color, created_at
+    expect(c.sql).toContain('category');
+    // Bindings: id, tenant_id, name, category, duration_minutes, default_capacity, color, created_at
     expect(c.params[1]).toBe('a'); // tenant_id = studio.id
     expect(c.params[2]).toBe('Vinyasa Flow');
-    expect(c.params[3]).toBe(60); // default duration
-    expect(c.params[4]).toBe(20); // default capacity
-    expect(c.params[5]).toBe('#6366f1'); // default color
+    expect(c.params[3]).toBe('yoga'); // category slug
+    expect(c.params[4]).toBe(60); // default duration
+    expect(c.params[5]).toBe(20); // default capacity
+    expect(c.params[6]).toBe('#6366f1'); // default color
     expect(typeof c.params[0]).toBe('string'); // UUID
-    expect(typeof c.params[6]).toBe('number'); // created_at
+    expect(typeof c.params[7]).toBe('number'); // created_at
+  });
+
+  test('class form requires a category', async ({ page }) => {
+    await signedIn(page);
+    await setupOwnerCheck(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+    });
+    let executed = false;
+    await page.route(STUDIO_API_EXECUTE, (route) => {
+      executed = true;
+      return route.fulfill({ status: 200, body: '{}' });
+    });
+    await page.goto('/yoga-haus/admin');
+    await page.fill('#class-name', 'Test');
+    // Don't pick a category. HTML5 required on <select> will block submit;
+    // status banner won't appear. We just assert no INSERT happened.
+    await page.getByRole('button', { name: /Add class type/i }).click();
+    await page.waitForTimeout(150);
+    expect(executed).toBe(false);
+  });
+
+  test('category dropdown lists Mindbody-style categories', async ({ page }) => {
+    await signedIn(page);
+    await setupOwnerCheck(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+    });
+    await page.goto('/yoga-haus/admin');
+    const options = page.locator('#class-category option');
+    // 16 categories + the disabled placeholder
+    await expect(options).toHaveCount(17);
+    await expect(page.locator('#class-category option[value=yoga]')).toHaveText('Yoga');
+    await expect(page.locator('#class-category option[value=hiit]')).toHaveText('HIIT');
+    await expect(page.locator('#class-category option[value=pilates]')).toHaveText('Pilates');
+  });
+
+  test('class card shows the category label', async ({ page }) => {
+    await signedIn(page);
+    await setupOwnerCheck(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+      classes: [
+        { id: 'c1', name: 'Vinyasa', category: 'yoga', duration_minutes: 60, default_capacity: 20, color: '#fff' },
+      ],
+    });
+    await page.goto('/yoga-haus/admin');
+    await expect(page.locator('.class-category').first()).toHaveText('Yoga');
   });
 
   test('rejects invalid duration', async ({ page }) => {
@@ -612,6 +660,7 @@ test.describe('studio admin (/<slug>/admin)', () => {
     });
     await page.goto('/yoga-haus/admin');
     await page.fill('#class-name', 'Test');
+    await page.selectOption('#class-category', 'yoga');
     await page.fill('#class-duration', '9999');
     await page.getByRole('button', { name: /Add class type/i }).click();
 
@@ -671,5 +720,224 @@ test.describe('studio admin (/<slug>/admin)', () => {
     expect(d.sql).toContain('id = ?');
     expect(d.sql).toContain('tenant_id = ?');
     expect(d.params).toEqual(['c1', 'a']);
+  });
+});
+
+test.describe('schedules + upcoming sessions', () => {
+  function adminRouter(
+    page: import('@playwright/test').Page,
+    opts: {
+      studio: Record<string, unknown>;
+      classes?: Record<string, unknown>[];
+      schedules?: Record<string, unknown>[];
+      sessions?: Record<string, unknown>[];
+      onScheduleQueryCall?: () => void;
+      onSessionQueryCall?: () => void;
+    },
+  ) {
+    return page.route(STUDIO_API_QUERY, (route) => {
+      const body = JSON.parse(route.request().postData()!) as { sql: string };
+      if (body.sql.includes('FROM studios')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: [opts.studio],
+            meta: { changes: 0, duration: 0 },
+          }),
+        });
+      }
+      if (body.sql.includes('FROM class_types')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: opts.classes ?? [],
+            meta: { changes: 0, duration: 0 },
+          }),
+        });
+      }
+      if (body.sql.includes('FROM schedules')) {
+        opts.onScheduleQueryCall?.();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: opts.schedules ?? [],
+            meta: { changes: 0, duration: 0 },
+          }),
+        });
+      }
+      if (body.sql.includes('FROM sessions')) {
+        opts.onSessionQueryCall?.();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: opts.sessions ?? [],
+            meta: { changes: 0, duration: 0 },
+          }),
+        });
+      }
+      return route.fulfill({ status: 200, body: '{"rows":[]}' });
+    });
+  }
+
+  test('empty state for schedules + sessions when nothing exists', async ({ page }) => {
+    await signedIn(page);
+    await adminRouter(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+    });
+    await page.goto('/yoga-haus/admin');
+
+    await expect(page.locator('#schedules-empty')).toBeVisible();
+    await expect(page.locator('#sessions-empty')).toBeVisible();
+  });
+
+  test('lists existing schedules with day labels + start time', async ({ page }) => {
+    await signedIn(page);
+    await adminRouter(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+      schedules: [
+        {
+          id: 's1',
+          class_type_id: 'c1',
+          class_name: 'Vinyasa Flow',
+          class_color: '#ff0000',
+          days_of_week: '1,3,5',
+          start_time: '18:00',
+          duration_minutes: 60,
+          capacity: 20,
+          location: 'Main studio',
+        },
+      ],
+    });
+    await page.goto('/yoga-haus/admin');
+
+    const card = page.locator('.schedule-card').first();
+    await expect(card).toContainText('Vinyasa Flow');
+    await expect(card).toContainText('Mon, Wed, Fri at 18:00');
+    await expect(card).toContainText('60 min');
+    await expect(card).toContainText('cap 20');
+    await expect(card).toContainText('Main studio');
+  });
+
+  test('schedule form requires a class type and at least one day', async ({ page }) => {
+    await signedIn(page);
+    await adminRouter(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+      classes: [{ id: 'c1', name: 'Vinyasa', category: 'yoga', duration_minutes: 60, default_capacity: 20, color: '#fff' }],
+    });
+    let executed = false;
+    await page.route(STUDIO_API_EXECUTE, (route) => {
+      executed = true;
+      return route.fulfill({ status: 200, body: '{}' });
+    });
+    await page.route(/data-studio\.proappstore\.online\/batch/, (route) => {
+      executed = true;
+      return route.fulfill({ status: 200, body: '{}' });
+    });
+    await page.goto('/yoga-haus/admin');
+
+    // Pick class type but no days
+    await page.selectOption('#schedule-class', 'c1');
+    await page.getByRole('button', { name: /Add schedule/i }).click();
+    await expect(page.locator('#schedule-status')).toContainText(/at least one day/);
+    expect(executed).toBe(false);
+  });
+
+  test('add schedule generates sessions and posts a single batch', async ({ page }) => {
+    let batchCall: { statements: { sql: string; params: unknown[] }[] } | null = null;
+    let sessionQueryCount = 0;
+    await signedIn(page);
+    await adminRouter(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+      classes: [
+        { id: 'c1', name: 'Vinyasa', category: 'yoga', duration_minutes: 60, default_capacity: 20, color: '#fff' },
+      ],
+      onSessionQueryCall: () => sessionQueryCount++,
+    });
+    await page.route(/data-studio\.proappstore\.online\/batch/, async (route) => {
+      batchCall = JSON.parse(route.request().postData()!);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ results: [] }),
+      });
+    });
+
+    await page.goto('/yoga-haus/admin');
+    await page.selectOption('#schedule-class', 'c1');
+    // Pick Mon + Wed
+    await page.check('#schedule-dow input[value="1"]');
+    await page.check('#schedule-dow input[value="3"]');
+    // Default time 18:00 is fine
+    await page.getByRole('button', { name: /Add schedule/i }).click();
+
+    await expect(page.locator('#schedule-status')).toContainText(/Added schedule/);
+
+    expect(batchCall).not.toBeNull();
+    const b = batchCall as unknown as { statements: { sql: string; params: unknown[] }[] };
+    // First statement: INSERT INTO schedules
+    expect(b.statements[0].sql).toContain('INSERT INTO schedules');
+    // Mon=1, Wed=3
+    expect(b.statements[0].params[3]).toBe('1,3');
+    expect(b.statements[0].params[4]).toBe('18:00');
+    expect(b.statements[0].params[6]).toBe(20); // capacity from class default
+
+    // Subsequent statements: session INSERTs
+    expect(b.statements.length).toBeGreaterThan(1);
+    for (const s of b.statements.slice(1)) {
+      expect(s.sql).toContain('INSERT INTO sessions');
+      // schedule_id is the last bound param (13 cols total)
+      expect(s.params[s.params.length - 1]).toBe(b.statements[0].params[0]);
+    }
+  });
+
+  test('upcoming sessions list groups by day and shows time + class', async ({ page }) => {
+    const now = Date.now();
+    const oneHour = 60 * 60 * 1000;
+    const tomorrow9am = new Date();
+    tomorrow9am.setDate(tomorrow9am.getDate() + 1);
+    tomorrow9am.setHours(9, 0, 0, 0);
+    const tomorrow6pm = new Date(tomorrow9am);
+    tomorrow6pm.setHours(18, 0, 0, 0);
+
+    await signedIn(page);
+    await adminRouter(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+      sessions: [
+        {
+          id: 'sess1',
+          starts_at: tomorrow9am.getTime(),
+          ends_at: tomorrow9am.getTime() + oneHour,
+          capacity: 20,
+          location: 'Main studio',
+          status: 'scheduled',
+          class_name: 'Sunrise Vinyasa',
+          class_color: '#ff0000',
+        },
+        {
+          id: 'sess2',
+          starts_at: tomorrow6pm.getTime(),
+          ends_at: tomorrow6pm.getTime() + oneHour,
+          capacity: 15,
+          location: null,
+          status: 'scheduled',
+          class_name: 'Evening Yin',
+          class_color: '#00ff00',
+        },
+      ],
+    });
+    await page.goto('/yoga-haus/admin');
+
+    const group = page.locator('.day-group');
+    await expect(group).toHaveCount(1);
+    const cards = page.locator('.session-card');
+    await expect(cards).toHaveCount(2);
+    await expect(cards.nth(0)).toContainText('Sunrise Vinyasa');
+    await expect(cards.nth(0)).toContainText('Main studio');
+    await expect(cards.nth(0)).toContainText('20 spots');
+    await expect(cards.nth(1)).toContainText('Evening Yin');
   });
 });
