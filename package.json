@@ -1,0 +1,14 @@
+{
+  "name": "studio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Multi-tenant studio booking platform on PAS.",
+  "type": "module",
+  "license": "MIT",
+  "dependencies": {
+    "@proappstore/sdk": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

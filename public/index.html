@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>studio — sign in</title>
+<style>
+  :root {
+    --fg: #0f172a;
+    --muted: #64748b;
+    --accent: #6366f1;
+    --bg: #fafafa;
+    --border: #e2e8f0;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); min-height: 100dvh; display: grid; place-items: center; }
+  main { width: min(420px, 92vw); padding: 2rem; }
+  h1 { font-size: 1.75rem; margin: 0 0 .25rem; letter-spacing: -0.02em; }
+  p.lede { color: var(--muted); margin: 0 0 1.5rem; }
+  form { display: grid; gap: .75rem; }
+  input[type=email] { padding: .75rem .9rem; border: 1px solid var(--border); border-radius: .5rem; font-size: 1rem; background: white; }
+  input[type=email]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button { padding: .75rem; border: 0; background: var(--fg); color: white; border-radius: .5rem; font-size: 1rem; cursor: pointer; }
+  button:hover { background: var(--accent); }
+  .divider { color: var(--muted); font-size: .85rem; text-align: center; margin: 1rem 0; }
+  .oauth { display: grid; gap: .5rem; }
+  .oauth button { background: white; color: var(--fg); border: 1px solid var(--border); }
+  .oauth button:hover { background: #f1f5f9; }
+  .status { margin-top: 1rem; padding: .75rem; border-radius: .5rem; font-size: .9rem; }
+  .status.ok { background: #ecfdf5; color: #065f46; }
+  .status.err { background: #fef2f2; color: #991b1b; }
+</style>
+</head>
+<body>
+<main>
+  <h1>studio</h1>
+  <p class="lede">Book classes, manage clients, run your studio.</p>
+
+  <form id="email-form">
+    <label for="email" style="font-size:.85rem;color:var(--muted)">Email</label>
+    <input id="email" type="email" required placeholder="you@studio.com" autocomplete="email">
+    <button type="submit">Email me a sign-in link</button>
+  </form>
+
+  <div class="divider">or</div>
+  <div class="oauth">
+    <button id="btn-google">Continue with Google</button>
+    <button id="btn-github">Continue with GitHub</button>
+  </div>
+
+  <div id="status" class="status" hidden></div>
+</main>
+
+<script type="module">
+  // TODO: replace with real SDK import once published to npm:
+  //   import { initPro } from '@proappstore/sdk';
+  // For now this is a placeholder stub so the page renders standalone.
+  const status = document.getElementById('status');
+  function flash(kind, msg) {
+    status.hidden = false;
+    status.className = 'status ' + kind;
+    status.textContent = msg;
+  }
+
+  document.getElementById('email-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('email').value.trim();
+    if (!email) return;
+    flash('ok', 'Sending magic link to ' + email + '…');
+    // Real call (once SDK is wired):
+    //   await pas.auth.signInWithEmail(email);
+    //   flash('ok', 'Check your inbox — click the link to sign in.');
+  });
+
+  for (const id of ['btn-google', 'btn-github']) {
+    document.getElementById(id).addEventListener('click', () => {
+      const provider = id === 'btn-google' ? 'google' : 'github';
+      flash('ok', 'Redirecting to ' + provider + '…');
+      // Real call:
+      //   pas.auth.signIn(provider);
+    });
+  }
+</script>
+</body>
+</html>
