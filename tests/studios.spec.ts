@@ -1,6 +1,7 @@
 import { expect, test, type Route } from '@playwright/test';
 
 const FAS_API = 'https://api.freeappstore.online';
+const PAS_API_GENERATE = 'https://api.proappstore.online/v1/ai/generate';
 const STUDIO_API_QUERY = /studio-api.*\/query/;
 const STUDIO_API_EXECUTE = /studio-api.*\/execute/;
 
@@ -74,6 +75,58 @@ test.describe('studio creation', () => {
     await expect(cards.nth(1)).toContainText('USD');
   });
 
+  test('AI suggest button fills the description from app.ai.generate', async ({ page }) => {
+    let aiCall: { prompt: string; maxTokens?: number; temperature?: number } | null = null;
+    await page.route(PAS_API_GENERATE, async (route) => {
+      aiCall = JSON.parse(route.request().postData()!);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          text: '"A neighbourhood haven for breath, balance, and the occasional headstand."',
+          model: '@cf/meta/llama-3.1-8b-instruct',
+          alias: 'fast',
+        }),
+      });
+    });
+    await signedIn(page);
+    await page.goto('/');
+    await expect(page.locator('#signed-in-view')).toBeVisible();
+
+    // Empty name → "type a name first" error, no API call
+    await page.locator('#btn-ai-describe').click();
+    await expect(page.locator('#create-status')).toContainText(/Type a studio name first/);
+    expect(aiCall).toBeNull();
+
+    // With a name, the button calls /v1/ai/generate and fills the textarea
+    await page.fill('#studio-name', 'Yoga Haus');
+    await page.locator('#btn-ai-describe').click();
+
+    await expect(page.locator('#studio-description')).toHaveValue(
+      'A neighbourhood haven for breath, balance, and the occasional headstand.',
+    );
+    expect(aiCall).not.toBeNull();
+    const c = aiCall as unknown as { prompt: string };
+    expect(c.prompt).toContain('Yoga Haus');
+    expect(c.prompt).toMatch(/wellness studio/);
+  });
+
+  test('AI suggest surfaces server errors on the create-status banner', async ({ page }) => {
+    await page.route(PAS_API_GENERATE, (route) =>
+      route.fulfill({ status: 503, body: 'AI quota exhausted' }),
+    );
+    await signedIn(page);
+    await page.goto('/');
+    await page.fill('#studio-name', 'Yoga Haus');
+    await page.locator('#btn-ai-describe').click();
+
+    const banner = page.locator('#create-status');
+    await expect(banner).toHaveClass(/err/);
+    await expect(banner).toContainText(/503/);
+    // Button re-enables after failure (don't leave the user stuck).
+    await expect(page.locator('#btn-ai-describe')).toBeEnabled();
+  });
+
   test('creates a studio: posts INSERT with correct bindings, then reloads list', async ({ page }) => {
     let insertCall: { sql: string; params: unknown[] } | null = null;
     let queryCallCount = 0;
@@ -127,6 +180,7 @@ test.describe('studio creation', () => {
     await expect(page.locator('#studios-empty')).toBeVisible();
 
     await page.fill('#studio-name', 'Yoga Haus');
+    await page.fill('#studio-description', 'Warm room, warmer people.');
     await page.fill('#studio-tz', 'Australia/Sydney');
     await page.fill('#studio-currency', 'aud');
     await page.getByRole('button', { name: /Create studio/i }).click();
@@ -142,15 +196,17 @@ test.describe('studio creation', () => {
     expect(insertCall).not.toBeNull();
     const captured = insertCall as unknown as { sql: string; params: unknown[] };
     expect(captured.sql).toContain('INSERT INTO studios');
+    expect(captured.sql).toContain('description');
     expect(captured.sql).toContain('owner_user_id');
-    // Bindings order: id, slug, name, owner_user_id, timezone, currency, created_at
+    // Bindings order: id, slug, name, description, owner_user_id, timezone, currency, created_at
     expect(captured.params[1]).toBe('yoga-haus'); // slug derived from name
     expect(captured.params[2]).toBe('Yoga Haus'); // name
-    expect(captured.params[3]).toBe('gh:42'); // owner = signed-in user.id
-    expect(captured.params[4]).toBe('Australia/Sydney');
-    expect(captured.params[5]).toBe('AUD'); // currency upper-cased
+    expect(captured.params[3]).toBe('Warm room, warmer people.'); // description
+    expect(captured.params[4]).toBe('gh:42'); // owner = signed-in user.id
+    expect(captured.params[5]).toBe('Australia/Sydney');
+    expect(captured.params[6]).toBe('AUD'); // currency upper-cased
     expect(typeof captured.params[0]).toBe('string'); // UUID id
-    expect(typeof captured.params[6]).toBe('number'); // created_at ms
+    expect(typeof captured.params[7]).toBe('number'); // created_at ms
   });
 
   test('shows a clear error when slug conflicts (UNIQUE constraint)', async ({ page }) => {
@@ -189,8 +245,9 @@ test.describe('studio creation', () => {
     await expect(page.locator('#create-status')).toContainText(/Created Bare Bones/);
     expect(captured).not.toBeNull();
     const c = captured as unknown as { params: unknown[] };
-    expect(c.params[4]).toBe('UTC'); // timezone default
-    expect(c.params[5]).toBe('AUD'); // currency default
+    expect(c.params[3]).toBeNull(); // description (omitted)
+    expect(c.params[5]).toBe('UTC'); // timezone default
+    expect(c.params[6]).toBe('AUD'); // currency default
   });
 
   test('does not POST when studio-name is empty', async ({ page }) => {
