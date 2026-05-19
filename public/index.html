@@ -17,7 +17,8 @@
   main { width: min(420px, 92vw); padding: 2rem; }
   h1 { font-size: 1.75rem; margin: 0 0 .25rem; letter-spacing: -0.02em; }
   p.lede { color: var(--muted); margin: 0 0 1.5rem; }
-  form { display: grid; gap: .75rem; }
+  label { font-size: .85rem; color: var(--muted); }
+  form { display: grid; gap: .5rem; }
   input[type=email] { padding: .75rem .9rem; border: 1px solid var(--border); border-radius: .5rem; font-size: 1rem; background: white; }
   input[type=email]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   button { padding: .75rem; border: 0; background: var(--fg); color: white; border-radius: .5rem; font-size: 1rem; cursor: pointer; }
@@ -29,6 +30,13 @@
   .status { margin-top: 1rem; padding: .75rem; border-radius: .5rem; font-size: .9rem; }
   .status.ok { background: #ecfdf5; color: #065f46; }
   .status.err { background: #fef2f2; color: #991b1b; }
+  .signed-in { display: flex; align-items: center; gap: .75rem; padding: 1rem; background: white; border: 1px solid var(--border); border-radius: .5rem; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; display: grid; place-items: center; font-weight: 600; color: var(--muted); }
+  .avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+  .who { flex: 1; min-width: 0; }
+  .who strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who small { color: var(--muted); font-size: .8rem; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -36,34 +44,54 @@
   <h1>studio</h1>
   <p class="lede">Book classes, manage clients, run your studio.</p>
 
-  <form id="email-form">
-    <label for="email" style="font-size:.85rem;color:var(--muted)">Email</label>
-    <input id="email" type="email" required placeholder="you@studio.com" autocomplete="email">
-    <button type="submit">Email me a sign-in link</button>
-  </form>
+  <section id="signin-view">
+    <form id="email-form" autocomplete="on" method="post" action="https://api.freeappstore.online/v1/auth/email/start">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" required placeholder="you@studio.com" autocomplete="email">
+      <button type="submit">Email me a sign-in link</button>
+    </form>
 
-  <div class="divider">or</div>
-  <div class="oauth">
-    <button id="btn-google">Continue with Google</button>
-    <button id="btn-github">Continue with GitHub</button>
-  </div>
+    <div class="divider">or</div>
+    <div class="oauth">
+      <button type="button" id="btn-google">Continue with Google</button>
+      <button type="button" id="btn-github">Continue with GitHub</button>
+    </div>
 
-  <div id="status" class="status" hidden></div>
+    <div id="status" class="status" hidden></div>
+  </section>
+
+  <section id="signed-in-view" hidden>
+    <div class="signed-in">
+      <div class="avatar" id="avatar"></div>
+      <div class="who">
+        <strong id="who-name"></strong>
+        <small>Signed in to studio</small>
+      </div>
+      <button type="button" id="btn-signout" style="background:white;color:var(--fg);border:1px solid var(--border);padding:.5rem .75rem">Sign out</button>
+    </div>
+    <p style="color:var(--muted);font-size:.9rem;margin-top:1rem">
+      Booking platform UI lands next. The platform primitives (D1, real-time, SMS, push, tenant wrapper) are live; the studio app on top of them is not built yet.
+    </p>
+  </section>
 </main>
 
 <script type="module">
-  // Inlined auth flow — same as @freeappstore/sdk's Auth class would do.
-  // Once we add a real bundle step we'll import { initPro } from
-  // '@proappstore/sdk' and use pas.auth.signIn / signInWithEmail.
   const FAS_API = 'https://api.freeappstore.online';
   const APP_ID = 'studio';
+  const SESSION_KEY = 'fas:session';
 
+  const signinView = document.getElementById('signin-view');
+  const signedInView = document.getElementById('signed-in-view');
   const status = document.getElementById('status');
+  const avatar = document.getElementById('avatar');
+  const whoName = document.getElementById('who-name');
+
   function flash(kind, msg) {
     status.hidden = false;
     status.className = 'status ' + kind;
     status.textContent = msg;
   }
+  function clearFlash() { status.hidden = true; status.textContent = ''; }
 
   function returnTo() {
     const here = new URL(window.location.href);
@@ -71,62 +99,98 @@
     return here.toString();
   }
 
-  function signIn(provider) {
-    const url = new URL('/v1/auth/' + provider + '/start', FAS_API);
-    url.searchParams.set('app_id', APP_ID);
-    url.searchParams.set('return_to', returnTo());
-    window.location.assign(url.toString());
-  }
-
-  async function signInWithEmail(email) {
-    const res = await fetch(new URL('/v1/auth/email/start', FAS_API), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, appId: APP_ID, returnTo: returnTo() }),
-    });
-    if (!res.ok) throw new Error('Magic-link request failed: ' + res.status + ' ' + (await res.text()));
-  }
-
-  // After sign-in, FAS redirects back with #fas_session=… — capture it
-  // and call /v1/auth/me to confirm identity.
-  async function captureSession() {
-    const hash = window.location.hash;
-    if (!hash.startsWith('#fas_session=')) return;
-    const token = decodeURIComponent(hash.slice('#fas_session='.length));
-    history.replaceState(null, '', window.location.pathname + window.location.search);
-    const me = await fetch(FAS_API + '/v1/auth/me', { headers: { Authorization: 'Bearer ' + token } });
-    if (!me.ok) {
-      flash('err', 'Sign-in failed: ' + me.status);
-      return;
+  function showSignedIn(user) {
+    whoName.textContent = user.login || 'unknown';
+    avatar.replaceChildren();
+    if (user.avatarUrl) {
+      const img = document.createElement('img');
+      img.alt = '';
+      img.src = user.avatarUrl;
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = (user.login || '?').slice(0, 1).toUpperCase();
     }
-    const user = await me.json();
-    document.querySelector('main').innerHTML =
-      '<h1>studio</h1>' +
-      '<p class="lede">Signed in as <strong>' + (user.login || 'unknown') + '</strong>.</p>' +
-      '<p style="color:var(--muted);font-size:.9rem">Booking platform UI lands next. ' +
-      'This is the auth-only scaffold — the platform primitives (D1, ' +
-      'real-time, SMS, push, tenant wrapper) are live; the studio app on top of them is not built yet.</p>';
+    signinView.hidden = true;
+    signedInView.hidden = false;
   }
-  captureSession().catch((err) => flash('err', String(err)));
+
+  function showSignin() {
+    signedInView.hidden = true;
+    signinView.hidden = false;
+  }
+
+  async function fetchMe(token) {
+    const res = await fetch(FAS_API + '/v1/auth/me', {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    if (!res.ok) throw new Error('auth/me: ' + res.status);
+    return await res.json();
+  }
+
+  async function capture() {
+    const hash = window.location.hash;
+    if (hash.startsWith('#fas_session=')) {
+      const token = decodeURIComponent(hash.slice('#fas_session='.length));
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      try {
+        const user = await fetchMe(token);
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ token, user }));
+        showSignedIn(user);
+        return;
+      } catch (err) {
+        flash('err', 'Sign-in failed: ' + err.message);
+        return;
+      }
+    }
+    const cached = localStorage.getItem(SESSION_KEY);
+    if (cached) {
+      try {
+        const { token, user } = JSON.parse(cached);
+        const fresh = await fetchMe(token);
+        showSignedIn(fresh || user);
+      } catch {
+        localStorage.removeItem(SESSION_KEY);
+      }
+    }
+  }
+  capture();
 
   document.getElementById('email-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    clearFlash();
     const email = document.getElementById('email').value.trim();
     if (!email) return;
     try {
       flash('ok', 'Sending magic link to ' + email + '…');
-      await signInWithEmail(email);
+      const res = await fetch(FAS_API + '/v1/auth/email/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, appId: APP_ID, returnTo: returnTo() }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        flash('err', 'Magic link not available: ' + res.status + ' ' + body);
+        return;
+      }
       flash('ok', 'Check your inbox — click the link to sign in.');
     } catch (err) {
       flash('err', String(err));
     }
   });
 
-  for (const id of ['btn-google', 'btn-github']) {
-    document.getElementById(id).addEventListener('click', () => {
-      signIn(id === 'btn-google' ? 'google' : 'github');
-    });
+  function startOAuth(provider) {
+    const url = new URL('/v1/auth/' + provider + '/start', FAS_API);
+    url.searchParams.set('app_id', APP_ID);
+    url.searchParams.set('return_to', returnTo());
+    window.location.assign(url.toString());
   }
+  document.getElementById('btn-google').addEventListener('click', () => startOAuth('google'));
+  document.getElementById('btn-github').addEventListener('click', () => startOAuth('github'));
+
+  document.getElementById('btn-signout').addEventListener('click', () => {
+    localStorage.removeItem(SESSION_KEY);
+    showSignin();
+  });
 </script>
 </body>
 </html>
