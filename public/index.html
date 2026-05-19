@@ -14,13 +14,14 @@
     font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
   }
   body { margin: 0; background: var(--bg); color: var(--fg); min-height: 100dvh; display: grid; place-items: center; }
-  main { width: min(420px, 92vw); padding: 2rem; }
+  main { width: min(560px, 92vw); padding: 2rem; }
   h1 { font-size: 1.75rem; margin: 0 0 .25rem; letter-spacing: -0.02em; }
+  h2 { font-size: 1.1rem; margin: 1.5rem 0 .75rem; }
   p.lede { color: var(--muted); margin: 0 0 1.5rem; }
   label { font-size: .85rem; color: var(--muted); }
   form { display: grid; gap: .5rem; }
-  input[type=email] { padding: .75rem .9rem; border: 1px solid var(--border); border-radius: .5rem; font-size: 1rem; background: white; }
-  input[type=email]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input[type=email], input[type=text] { padding: .75rem .9rem; border: 1px solid var(--border); border-radius: .5rem; font-size: 1rem; background: white; }
+  input[type=email]:focus, input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   button { padding: .75rem; border: 0; background: var(--fg); color: white; border-radius: .5rem; font-size: 1rem; cursor: pointer; }
   button:hover { background: var(--accent); }
   .divider { color: var(--muted); font-size: .85rem; text-align: center; margin: 1rem 0; }
@@ -36,6 +37,12 @@
   .who { flex: 1; min-width: 0; }
   .who strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .who small { color: var(--muted); font-size: .8rem; }
+  .studios-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+  .studio-card { padding: 1rem; background: white; border: 1px solid var(--border); border-radius: .5rem; }
+  .studio-card strong { display: block; }
+  .studio-card small { color: var(--muted); font-size: .8rem; }
+  .empty { padding: 1rem; background: white; border: 1px dashed var(--border); border-radius: .5rem; color: var(--muted); font-size: .9rem; text-align: center; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -69,29 +76,57 @@
       </div>
       <button type="button" id="btn-signout" style="background:white;color:var(--fg);border:1px solid var(--border);padding:.5rem .75rem">Sign out</button>
     </div>
-    <p style="color:var(--muted);font-size:.9rem;margin-top:1rem">
-      Booking platform UI lands next. The platform primitives (D1, real-time, SMS, push, tenant wrapper) are live; the studio app on top of them is not built yet.
-    </p>
+
+    <h2>Your studios</h2>
+    <div id="studios-empty" class="empty" hidden>
+      You don't have any studios yet. Create your first one below.
+    </div>
+    <ul id="studios-list" class="studios-list" hidden></ul>
+
+    <h2 id="create-heading">Create a studio</h2>
+    <form id="create-form" autocomplete="off">
+      <label for="studio-name">Studio name</label>
+      <input id="studio-name" name="studioName" type="text" required placeholder="Yoga Haus" maxlength="80">
+      <div class="row">
+        <div style="display:grid;gap:.5rem">
+          <label for="studio-tz">Timezone</label>
+          <input id="studio-tz" name="timezone" type="text" placeholder="Australia/Sydney" maxlength="40">
+        </div>
+        <div style="display:grid;gap:.5rem">
+          <label for="studio-currency">Currency</label>
+          <input id="studio-currency" name="currency" type="text" placeholder="AUD" maxlength="3">
+        </div>
+      </div>
+      <button type="submit">Create studio</button>
+    </form>
+
+    <div id="create-status" class="status" hidden></div>
   </section>
 </main>
 
 <script type="module">
   const FAS_API = 'https://api.freeappstore.online';
+  const STUDIO_API = 'https://studio-api.serge-the-dev.workers.dev';
   const APP_ID = 'studio';
   const SESSION_KEY = 'fas:session';
 
   const signinView = document.getElementById('signin-view');
   const signedInView = document.getElementById('signed-in-view');
   const status = document.getElementById('status');
+  const createStatus = document.getElementById('create-status');
   const avatar = document.getElementById('avatar');
   const whoName = document.getElementById('who-name');
+  const studiosList = document.getElementById('studios-list');
+  const studiosEmpty = document.getElementById('studios-empty');
 
-  function flash(kind, msg) {
-    status.hidden = false;
-    status.className = 'status ' + kind;
-    status.textContent = msg;
+  let session = null;
+
+  function flash(el, kind, msg) {
+    el.hidden = false;
+    el.className = 'status ' + kind;
+    el.textContent = msg;
   }
-  function clearFlash() { status.hidden = true; status.textContent = ''; }
+  function clearFlash(el) { el.hidden = true; el.textContent = ''; }
 
   function returnTo() {
     const here = new URL(window.location.href);
@@ -112,11 +147,13 @@
     }
     signinView.hidden = true;
     signedInView.hidden = false;
+    loadStudios().catch((err) => flash(createStatus, 'err', String(err)));
   }
 
   function showSignin() {
     signedInView.hidden = true;
     signinView.hidden = false;
+    session = null;
   }
 
   async function fetchMe(token) {
@@ -127,6 +164,74 @@
     return await res.json();
   }
 
+  async function dbQuery(sql, params) {
+    if (!session) throw new Error('Not signed in.');
+    const res = await fetch(STUDIO_API + '/query', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + session.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ sql, params: params ?? [] }),
+    });
+    if (!res.ok) throw new Error('db.query failed: ' + res.status + ' ' + (await res.text()));
+    return await res.json();
+  }
+
+  async function dbExecute(sql, params) {
+    if (!session) throw new Error('Not signed in.');
+    const res = await fetch(STUDIO_API + '/execute', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + session.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ sql, params: params ?? [] }),
+    });
+    if (!res.ok) throw new Error('db.execute failed: ' + res.status + ' ' + (await res.text()));
+    return await res.json();
+  }
+
+  function slugify(name) {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60);
+  }
+
+  async function loadStudios() {
+    if (!session) return;
+    const { rows } = await dbQuery(
+      'SELECT id, slug, name, timezone, currency, created_at FROM studios WHERE owner_user_id = ? ORDER BY created_at DESC',
+      [session.user.id],
+    );
+    renderStudios(rows);
+  }
+
+  function renderStudios(rows) {
+    studiosList.replaceChildren();
+    if (!rows || rows.length === 0) {
+      studiosEmpty.hidden = false;
+      studiosList.hidden = true;
+      return;
+    }
+    studiosEmpty.hidden = true;
+    studiosList.hidden = false;
+    for (const r of rows) {
+      const li = document.createElement('li');
+      li.className = 'studio-card';
+      const strong = document.createElement('strong');
+      strong.textContent = r.name;
+      const small = document.createElement('small');
+      small.textContent =
+        '/' + r.slug + ' · ' + (r.timezone || 'UTC') + ' · ' + (r.currency || 'AUD');
+      li.appendChild(strong);
+      li.appendChild(small);
+      studiosList.appendChild(li);
+    }
+  }
+
   async function capture() {
     const hash = window.location.hash;
     if (hash.startsWith('#fas_session=')) {
@@ -134,20 +239,22 @@
       history.replaceState(null, '', window.location.pathname + window.location.search);
       try {
         const user = await fetchMe(token);
-        localStorage.setItem(SESSION_KEY, JSON.stringify({ token, user }));
+        session = { token, user };
+        localStorage.setItem(SESSION_KEY, JSON.stringify(session));
         showSignedIn(user);
         return;
       } catch (err) {
-        flash('err', 'Sign-in failed: ' + err.message);
+        flash(status, 'err', 'Sign-in failed: ' + err.message);
         return;
       }
     }
     const cached = localStorage.getItem(SESSION_KEY);
     if (cached) {
       try {
-        const { token, user } = JSON.parse(cached);
-        const fresh = await fetchMe(token);
-        showSignedIn(fresh || user);
+        const parsed = JSON.parse(cached);
+        const fresh = await fetchMe(parsed.token);
+        session = { token: parsed.token, user: fresh };
+        showSignedIn(fresh);
       } catch {
         localStorage.removeItem(SESSION_KEY);
       }
@@ -157,11 +264,11 @@
 
   document.getElementById('email-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    clearFlash();
+    clearFlash(status);
     const email = document.getElementById('email').value.trim();
     if (!email) return;
     try {
-      flash('ok', 'Sending magic link to ' + email + '…');
+      flash(status, 'ok', 'Sending magic link to ' + email + '…');
       const res = await fetch(FAS_API + '/v1/auth/email/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -169,12 +276,12 @@
       });
       if (!res.ok) {
         const body = await res.text();
-        flash('err', 'Magic link not available: ' + res.status + ' ' + body);
+        flash(status, 'err', 'Magic link not available: ' + res.status + ' ' + body);
         return;
       }
-      flash('ok', 'Check your inbox — click the link to sign in.');
+      flash(status, 'ok', 'Check your inbox — click the link to sign in.');
     } catch (err) {
-      flash('err', String(err));
+      flash(status, 'err', String(err));
     }
   });
 
@@ -190,6 +297,38 @@
   document.getElementById('btn-signout').addEventListener('click', () => {
     localStorage.removeItem(SESSION_KEY);
     showSignin();
+  });
+
+  document.getElementById('create-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearFlash(createStatus);
+    if (!session) return;
+    const name = document.getElementById('studio-name').value.trim();
+    if (!name) return;
+    const timezone = document.getElementById('studio-tz').value.trim() || 'UTC';
+    const currency = (document.getElementById('studio-currency').value.trim() || 'AUD').toUpperCase();
+
+    const id = crypto.randomUUID();
+    const slug = slugify(name) || id.slice(0, 8);
+
+    try {
+      flash(createStatus, 'ok', 'Creating ' + name + '…');
+      await dbExecute(
+        `INSERT INTO studios (id, slug, name, owner_user_id, timezone, currency, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, slug, name, session.user.id, timezone, currency, Date.now()],
+      );
+      flash(createStatus, 'ok', 'Created ' + name + '. It now appears in your studios.');
+      document.getElementById('create-form').reset();
+      await loadStudios();
+    } catch (err) {
+      const msg = String(err);
+      if (msg.includes('UNIQUE constraint failed: studios.slug')) {
+        flash(createStatus, 'err', 'A studio with the slug "' + slug + '" already exists — pick a different name.');
+      } else {
+        flash(createStatus, 'err', msg);
+      }
+    }
   });
 </script>
 </body>

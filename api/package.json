@@ -1,0 +1,21 @@
+{
+  "name": "studio-api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Studio data-worker — proxies SQL to studio's shared D1, auths via FAS.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.12.18"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.0.0"
+  }
+}

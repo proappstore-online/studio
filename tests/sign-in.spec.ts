@@ -137,6 +137,15 @@ test.describe('cached session', () => {
       );
     });
 
+    // Stub data-worker so loadStudios() doesn't hit the real network in CI.
+    await page.route(/studio-api.*\/query/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ rows: [], meta: { changes: 0, duration: 0 } }),
+      }),
+    );
+
     await page.goto('/');
 
     await expect(page.locator('#signed-in-view')).toBeVisible();
@@ -152,6 +161,13 @@ test.describe('cached session', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ id: 'gh:42', login: 'alice', avatarUrl: null }),
+      }),
+    );
+    await page.route(/studio-api.*\/query/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ rows: [], meta: { changes: 0, duration: 0 } }),
       }),
     );
     await page.addInitScript(() => {
@@ -204,6 +220,13 @@ test.describe('OAuth post-redirect session capture', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ id: 'google:abc', login: 'bob', avatarUrl: null }),
+      }),
+    );
+    await page.route(/studio-api.*\/query/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ rows: [], meta: { changes: 0, duration: 0 } }),
       }),
     );
 
