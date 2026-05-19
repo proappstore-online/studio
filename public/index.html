@@ -52,9 +52,12 @@
 </main>
 
 <script type="module">
-  // TODO: replace with real SDK import once published to npm:
-  //   import { initPro } from '@proappstore/sdk';
-  // For now this is a placeholder stub so the page renders standalone.
+  // Inlined auth flow — same as @freeappstore/sdk's Auth class would do.
+  // Once we add a real bundle step we'll import { initPro } from
+  // '@proappstore/sdk' and use pas.auth.signIn / signInWithEmail.
+  const FAS_API = 'https://api.freeappstore.online';
+  const APP_ID = 'studio';
+
   const status = document.getElementById('status');
   function flash(kind, msg) {
     status.hidden = false;
@@ -62,22 +65,66 @@
     status.textContent = msg;
   }
 
+  function returnTo() {
+    const here = new URL(window.location.href);
+    here.hash = '';
+    return here.toString();
+  }
+
+  function signIn(provider) {
+    const url = new URL('/v1/auth/' + provider + '/start', FAS_API);
+    url.searchParams.set('app_id', APP_ID);
+    url.searchParams.set('return_to', returnTo());
+    window.location.assign(url.toString());
+  }
+
+  async function signInWithEmail(email) {
+    const res = await fetch(new URL('/v1/auth/email/start', FAS_API), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, appId: APP_ID, returnTo: returnTo() }),
+    });
+    if (!res.ok) throw new Error('Magic-link request failed: ' + res.status + ' ' + (await res.text()));
+  }
+
+  // After sign-in, FAS redirects back with #fas_session=… — capture it
+  // and call /v1/auth/me to confirm identity.
+  async function captureSession() {
+    const hash = window.location.hash;
+    if (!hash.startsWith('#fas_session=')) return;
+    const token = decodeURIComponent(hash.slice('#fas_session='.length));
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    const me = await fetch(FAS_API + '/v1/auth/me', { headers: { Authorization: 'Bearer ' + token } });
+    if (!me.ok) {
+      flash('err', 'Sign-in failed: ' + me.status);
+      return;
+    }
+    const user = await me.json();
+    document.querySelector('main').innerHTML =
+      '<h1>studio</h1>' +
+      '<p class="lede">Signed in as <strong>' + (user.login || 'unknown') + '</strong>.</p>' +
+      '<p style="color:var(--muted);font-size:.9rem">Booking platform UI lands next. ' +
+      'This is the auth-only scaffold — the platform primitives (D1, ' +
+      'real-time, SMS, push, tenant wrapper) are live; the studio app on top of them is not built yet.</p>';
+  }
+  captureSession().catch((err) => flash('err', String(err)));
+
   document.getElementById('email-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = document.getElementById('email').value.trim();
     if (!email) return;
-    flash('ok', 'Sending magic link to ' + email + '…');
-    // Real call (once SDK is wired):
-    //   await pas.auth.signInWithEmail(email);
-    //   flash('ok', 'Check your inbox — click the link to sign in.');
+    try {
+      flash('ok', 'Sending magic link to ' + email + '…');
+      await signInWithEmail(email);
+      flash('ok', 'Check your inbox — click the link to sign in.');
+    } catch (err) {
+      flash('err', String(err));
+    }
   });
 
   for (const id of ['btn-google', 'btn-github']) {
     document.getElementById(id).addEventListener('click', () => {
-      const provider = id === 'btn-google' ? 'google' : 'github';
-      flash('ok', 'Redirecting to ' + provider + '…');
-      // Real call:
-      //   pas.auth.signIn(provider);
+      signIn(id === 'btn-google' ? 'google' : 'github');
     });
   }
 </script>
