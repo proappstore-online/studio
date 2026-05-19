@@ -2,8 +2,9 @@ import { expect, test, type Route } from '@playwright/test';
 
 const FAS_API = 'https://api.freeappstore.online';
 const PAS_API_GENERATE = 'https://api.proappstore.online/v1/ai/generate';
-const STUDIO_API_QUERY = /studio-api.*\/query/;
-const STUDIO_API_EXECUTE = /studio-api.*\/execute/;
+const STUDIO_API_QUERY = /data-studio\.proappstore\.online\/query/;
+const STUDIO_API_EXECUTE = /data-studio\.proappstore\.online\/execute/;
+const STUDIO_API_PUBLIC = /data-studio\.proappstore\.online\/public\/studios/;
 
 const USER = { id: 'gh:42', login: 'alice', avatarUrl: null };
 
@@ -261,6 +262,175 @@ test.describe('studio creation', () => {
     await page.locator('#create-form').evaluate((f) =>
       (f as HTMLFormElement).dispatchEvent(new Event('submit', { cancelable: true })),
     );
+    await page.waitForTimeout(200);
+    expect(called).toBe(false);
+  });
+});
+
+test.describe('edit studio (inline)', () => {
+  test('Edit button swaps card for an edit form prefilled with current values', async ({ page }) => {
+    await signedIn(page, {
+      studios: [
+        {
+          id: 'a',
+          slug: 'yoga-haus',
+          name: 'Yoga Haus',
+          description: 'Old description',
+          timezone: 'UTC',
+          currency: 'AUD',
+          created_at: 1,
+        },
+      ],
+    });
+    await page.goto('/');
+    await expect(page.locator('.studio-card')).toHaveCount(1);
+    await page.locator('.btn-edit').click();
+
+    await expect(page.locator('.edit-name')).toHaveValue('Yoga Haus');
+    await expect(page.locator('.edit-description')).toHaveValue('Old description');
+    await expect(page.locator('.edit-tz')).toHaveValue('UTC');
+    await expect(page.locator('.edit-currency')).toHaveValue('AUD');
+  });
+
+  test('Save sends UPDATE with new values, scoped to id + owner_user_id', async ({ page }) => {
+    let updateCall: { sql: string; params: unknown[] } | null = null;
+    let queryCount = 0;
+    await signedIn(page, {
+      studios: [
+        { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', description: null, timezone: 'UTC', currency: 'AUD', created_at: 1 },
+      ],
+    });
+
+    // After UPDATE the page reloads the list — the second /query returns updated row.
+    await page.unroute(STUDIO_API_QUERY);
+    await page.route(STUDIO_API_QUERY, async (route) => {
+      queryCount++;
+      const studios =
+        queryCount === 1
+          ? [{ id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', description: null, timezone: 'UTC', currency: 'AUD', created_at: 1 }]
+          : [{ id: 'a', slug: 'yoga-haus', name: 'Yoga Haus Renamed', description: 'Now with description', timezone: 'Australia/Sydney', currency: 'USD', created_at: 1 }];
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ rows: studios, meta: { changes: 0, duration: 0 } }),
+      });
+    });
+    await page.route(STUDIO_API_EXECUTE, async (route) => {
+      updateCall = JSON.parse(route.request().postData()!);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ meta: { changes: 1, duration: 0, last_row_id: 0 } }),
+      });
+    });
+
+    await page.goto('/');
+    await page.locator('.btn-edit').click();
+    await page.locator('.edit-name').fill('Yoga Haus Renamed');
+    await page.locator('.edit-description').fill('Now with description');
+    await page.locator('.edit-tz').fill('Australia/Sydney');
+    await page.locator('.edit-currency').fill('usd');
+    await page.locator('.btn-save').click();
+
+    // After save we land back on the card view, with updated content.
+    await expect(page.locator('.studio-card strong').first()).toHaveText('Yoga Haus Renamed');
+    await expect(page.locator('.studio-card p').first()).toHaveText('Now with description');
+
+    expect(updateCall).not.toBeNull();
+    const c = updateCall as unknown as { sql: string; params: unknown[] };
+    expect(c.sql).toContain('UPDATE studios');
+    expect(c.sql).toContain('WHERE id = ? AND owner_user_id = ?');
+    expect(c.params).toEqual([
+      'Yoga Haus Renamed',
+      'Now with description',
+      'Australia/Sydney',
+      'USD',
+      'a',
+      'gh:42',
+    ]);
+  });
+
+  test('Cancel discards changes and re-renders the original card', async ({ page }) => {
+    await signedIn(page, {
+      studios: [
+        { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', description: 'desc', timezone: 'UTC', currency: 'AUD', created_at: 1 },
+      ],
+    });
+    let executed = false;
+    await page.route(STUDIO_API_EXECUTE, (route) => {
+      executed = true;
+      return route.fulfill({ status: 200, body: '{}' });
+    });
+    await page.goto('/');
+    await page.locator('.btn-edit').click();
+    await page.locator('.edit-name').fill('something else');
+    await page.locator('.btn-cancel').click();
+
+    await expect(page.locator('.studio-card strong').first()).toHaveText('Yoga Haus');
+    expect(executed).toBe(false);
+  });
+
+  test('Each card has a "View public page →" link pointing at /<slug>', async ({ page }) => {
+    await signedIn(page, {
+      studios: [
+        { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', description: null, timezone: 'UTC', currency: 'AUD', created_at: 1 },
+      ],
+    });
+    await page.goto('/');
+    const link = page.locator('.studio-card a').first();
+    await expect(link).toHaveText(/View public page/);
+    await expect(link).toHaveAttribute('href', '/yoga-haus');
+    await expect(link).toHaveAttribute('target', '_blank');
+  });
+});
+
+test.describe('public studio page', () => {
+  test('renders studio details at /<slug>', async ({ page }) => {
+    await page.route(STUDIO_API_PUBLIC, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'a',
+          slug: 'yoga-haus',
+          name: 'Yoga Haus',
+          description: 'Warm room, warmer people.',
+          timezone: 'Australia/Sydney',
+          currency: 'AUD',
+          address: '123 Bondi Rd',
+        }),
+      }),
+    );
+    await page.goto('/yoga-haus');
+
+    await expect(page.locator('#public-view')).toBeVisible();
+    await expect(page.locator('#home-header')).toBeHidden();
+    await expect(page.locator('#signin-view')).toBeHidden();
+    await expect(page.locator('#public-hero h1')).toHaveText('Yoga Haus');
+    await expect(page.locator('#public-hero .desc')).toHaveText('Warm room, warmer people.');
+    await expect(page.locator('#public-hero .meta')).toContainText('Australia/Sydney');
+    await expect(page.locator('#public-hero .meta')).toContainText('123 Bondi Rd');
+    await expect(page).toHaveTitle(/Yoga Haus/);
+  });
+
+  test('shows not-found view when slug does not exist', async ({ page }) => {
+    await page.route(STUDIO_API_PUBLIC, (route) => route.fulfill({ status: 404, body: 'not found' }));
+    await page.goto('/no-such-studio');
+
+    await expect(page.locator('#notfound-view')).toBeVisible();
+    await expect(page.locator('#public-view')).toBeHidden();
+    await expect(page.locator('#signed-in-view')).toBeHidden();
+  });
+
+  test('rejects bad slug shapes locally without hitting the API', async ({ page }) => {
+    let called = false;
+    await page.route(STUDIO_API_PUBLIC, (route) => {
+      called = true;
+      return route.fulfill({ status: 200, body: '{}' });
+    });
+    // Uppercase letters → not a valid slug → notfound view, no API call.
+    await page.goto('/UPPERCASE');
+    await expect(page.locator('#notfound-view')).toBeVisible();
     await page.waitForTimeout(200);
     expect(called).toBe(false);
   });

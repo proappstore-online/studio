@@ -138,7 +138,7 @@ test.describe('cached session', () => {
     });
 
     // Stub data-worker so loadStudios() doesn't hit the real network in CI.
-    await page.route(/studio-api.*\/query/, (route) =>
+    await page.route(/data-studio\.proappstore\.online\/query/, (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -163,7 +163,7 @@ test.describe('cached session', () => {
         body: JSON.stringify({ id: 'gh:42', login: 'alice', avatarUrl: null }),
       }),
     );
-    await page.route(/studio-api.*\/query/, (route) =>
+    await page.route(/data-studio\.proappstore\.online\/query/, (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -222,7 +222,7 @@ test.describe('OAuth post-redirect session capture', () => {
         body: JSON.stringify({ id: 'google:abc', login: 'bob', avatarUrl: null }),
       }),
     );
-    await page.route(/studio-api.*\/query/, (route) =>
+    await page.route(/data-studio\.proappstore\.online\/query/, (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',

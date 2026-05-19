@@ -6,7 +6,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "serve public -l 4173 --no-port-switching",
+    "dev": "serve public -l 4173 --no-port-switching --single",
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:install": "playwright install --with-deps chromium"

@@ -1,0 +1,4 @@
+# SPA fallback — let JS handle path-based routing for /<slug> etc.
+# Static assets at their actual paths still resolve normally; only
+# missing paths fall through to index.html.
+/*  /index.html  200

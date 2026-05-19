@@ -112,6 +112,41 @@ function validateSql(body: unknown): SqlPayload {
 
 app.get('/health', (c) => c.json({ ok: true }));
 
+// ---------------------------------------------------------------------------
+// Public (unauthenticated) read endpoints — for the discoverable studio
+// pages at studio.proappstore.online/<slug>. Only safe, non-PII columns are
+// exposed; no owner_user_id, no email/phone unless the studio chose to publish
+// them on their public page (a future toggle).
+// ---------------------------------------------------------------------------
+
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,60}$/;
+
+app.get('/public/studios/:slug', async (c) => {
+  const slug = c.req.param('slug');
+  if (!SLUG_RE.test(slug)) return c.text('invalid slug', 400);
+  const row = await c.env.DB.prepare(
+    `SELECT id, slug, name, description, timezone, currency, phone, email,
+            address, brand_color, logo_url, created_at
+     FROM studios WHERE slug = ? LIMIT 1`,
+  )
+    .bind(slug)
+    .first();
+  if (!row) return c.text('not found', 404);
+  return c.json(row);
+});
+
+app.get('/public/studios', async (c) => {
+  const limitRaw = parseInt(c.req.query('limit') ?? '50', 10);
+  const limit = Math.min(Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50, 100);
+  const result = await c.env.DB.prepare(
+    `SELECT id, slug, name, description, timezone, currency, created_at
+     FROM studios ORDER BY created_at DESC LIMIT ?`,
+  )
+    .bind(limit)
+    .all();
+  return c.json(result.results);
+});
+
 app.get('/tables', async (c) => {
   await requireUser(c);
   const result = await c.env.DB.prepare(

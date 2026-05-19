@@ -46,17 +46,33 @@
   textarea { padding: .75rem .9rem; border: 1px solid var(--border); border-radius: .5rem; font-size: 1rem; background: white; font-family: inherit; resize: vertical; min-height: 4.5rem; }
   textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .label-row { display: flex; align-items: center; justify-content: space-between; }
-  .ai-btn { background: white; color: var(--accent); border: 1px solid var(--border); padding: .25rem .5rem; font-size: .8rem; border-radius: .375rem; cursor: pointer; }
-  .ai-btn:hover { background: #f1f5f9; }
-  .ai-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .ai-btn, .card-btn { background: white; color: var(--accent); border: 1px solid var(--border); padding: .25rem .5rem; font-size: .8rem; border-radius: .375rem; cursor: pointer; }
+  .ai-btn:hover, .card-btn:hover { background: #f1f5f9; }
+  .ai-btn:disabled, .card-btn:disabled { opacity: .5; cursor: not-allowed; }
   .studio-card p { margin: .25rem 0 0; color: var(--muted); font-size: .85rem; }
+  .card-actions { display: flex; gap: .5rem; margin-top: .5rem; }
+  .card-actions a { color: var(--accent); text-decoration: none; font-size: .8rem; padding: .25rem .5rem; border: 1px solid var(--border); border-radius: .375rem; }
+  .card-actions a:hover { background: #f1f5f9; }
+  .edit-form { display: grid; gap: .5rem; }
+  .edit-form input, .edit-form textarea { padding: .5rem .65rem; font-size: .9rem; }
+  .edit-form .btn-row { display: flex; gap: .5rem; }
+  .edit-form .btn-row button { padding: .5rem .75rem; font-size: .9rem; flex: 1; }
+  .public-hero { padding: 2rem 1.5rem; background: white; border: 1px solid var(--border); border-radius: .75rem; }
+  .public-hero h1 { font-size: 2rem; margin: 0 0 .5rem; }
+  .public-hero .meta { color: var(--muted); font-size: .9rem; margin: 0 0 1rem; }
+  .public-hero .desc { font-size: 1.05rem; line-height: 1.5; margin: 0; }
+  .public-footer { margin-top: 1.5rem; padding: 1rem; background: #f1f5f9; border-radius: .5rem; color: var(--muted); font-size: .85rem; text-align: center; }
+  .nav-home { display: inline-block; color: var(--accent); text-decoration: none; font-size: .85rem; margin-bottom: 1rem; }
+  .nav-home:hover { text-decoration: underline; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
-  <h1>studio</h1>
-  <p class="lede">Book classes, manage clients, run your studio.</p>
+  <section id="home-header">
+    <h1>studio</h1>
+    <p class="lede">Book classes, manage clients, run your studio.</p>
+  </section>
 
   <section id="signin-view">
     <form id="email-form" autocomplete="on" method="post" action="https://api.freeappstore.online/v1/auth/email/start">
@@ -116,17 +132,38 @@
 
     <div id="create-status" class="status" hidden></div>
   </section>
+
+  <section id="public-view" hidden>
+    <a href="/" class="nav-home">← studio directory</a>
+    <div id="public-hero" class="public-hero"></div>
+    <div class="public-footer">
+      Booking opens soon. This studio is hosted on
+      <a href="/" style="color:var(--accent)">studio</a> — multi-tenant booking platform.
+    </div>
+  </section>
+
+  <section id="notfound-view" hidden>
+    <a href="/" class="nav-home">← studio directory</a>
+    <div class="public-hero">
+      <h1>Not found</h1>
+      <p class="desc">No studio at this URL — it may have been renamed or never existed.</p>
+    </div>
+  </section>
 </main>
 
 <script type="module">
   const FAS_API = 'https://api.freeappstore.online';
   const PAS_API = 'https://api.proappstore.online';
-  const STUDIO_API = 'https://studio-api.serge-the-dev.workers.dev';
+  const STUDIO_API = 'https://data-studio.proappstore.online';
   const APP_ID = 'studio';
   const SESSION_KEY = 'fas:session';
 
+  const homeHeader = document.getElementById('home-header');
   const signinView = document.getElementById('signin-view');
   const signedInView = document.getElementById('signed-in-view');
+  const publicView = document.getElementById('public-view');
+  const notfoundView = document.getElementById('notfound-view');
+  const publicHero = document.getElementById('public-hero');
   const status = document.getElementById('status');
   const createStatus = document.getElementById('create-status');
   const avatar = document.getElementById('avatar');
@@ -234,21 +271,187 @@
     studiosEmpty.hidden = true;
     studiosList.hidden = false;
     for (const r of rows) {
-      const li = document.createElement('li');
-      li.className = 'studio-card';
-      const strong = document.createElement('strong');
-      strong.textContent = r.name;
-      const small = document.createElement('small');
-      small.textContent =
-        '/' + r.slug + ' · ' + (r.timezone || 'UTC') + ' · ' + (r.currency || 'AUD');
-      li.appendChild(strong);
-      li.appendChild(small);
-      if (r.description) {
-        const p = document.createElement('p');
-        p.textContent = r.description;
-        li.appendChild(p);
+      studiosList.appendChild(renderCard(r));
+    }
+  }
+
+  function renderCard(r) {
+    const li = document.createElement('li');
+    li.className = 'studio-card';
+    li.dataset.id = r.id;
+
+    const strong = document.createElement('strong');
+    strong.textContent = r.name;
+    const small = document.createElement('small');
+    small.textContent =
+      '/' + r.slug + ' · ' + (r.timezone || 'UTC') + ' · ' + (r.currency || 'AUD');
+    li.appendChild(strong);
+    li.appendChild(small);
+    if (r.description) {
+      const p = document.createElement('p');
+      p.textContent = r.description;
+      li.appendChild(p);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'card-actions';
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'card-btn btn-edit';
+    editBtn.textContent = 'Edit';
+    editBtn.addEventListener('click', () => beginEdit(li, r));
+    actions.appendChild(editBtn);
+
+    const publicLink = document.createElement('a');
+    publicLink.href = '/' + r.slug;
+    publicLink.textContent = 'View public page →';
+    publicLink.target = '_blank';
+    publicLink.rel = 'noopener';
+    actions.appendChild(publicLink);
+
+    li.appendChild(actions);
+    return li;
+  }
+
+  function beginEdit(li, r) {
+    li.replaceChildren();
+
+    const form = document.createElement('form');
+    form.className = 'edit-form';
+    form.addEventListener('submit', (e) => e.preventDefault());
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'edit-name';
+    nameInput.value = r.name;
+    nameInput.required = true;
+    nameInput.maxLength = 80;
+    form.appendChild(labeled('Name', nameInput));
+
+    const descInput = document.createElement('textarea');
+    descInput.className = 'edit-description';
+    descInput.value = r.description ?? '';
+    descInput.maxLength = 280;
+    descInput.placeholder = 'Short description (optional)';
+    form.appendChild(labeled('Description', descInput));
+
+    const tzInput = document.createElement('input');
+    tzInput.type = 'text';
+    tzInput.className = 'edit-tz';
+    tzInput.value = r.timezone ?? 'UTC';
+    tzInput.maxLength = 40;
+
+    const currencyInput = document.createElement('input');
+    currencyInput.type = 'text';
+    currencyInput.className = 'edit-currency';
+    currencyInput.value = r.currency ?? 'AUD';
+    currencyInput.maxLength = 3;
+
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.appendChild(labeled('Timezone', tzInput));
+    row.appendChild(labeled('Currency', currencyInput));
+    form.appendChild(row);
+
+    const btns = document.createElement('div');
+    btns.className = 'btn-row';
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'btn-save';
+    save.textContent = 'Save';
+    save.addEventListener('click', async () => {
+      const name = nameInput.value.trim();
+      if (!name) return;
+      const description = descInput.value.trim() || null;
+      const timezone = tzInput.value.trim() || 'UTC';
+      const currency = (currencyInput.value.trim() || 'AUD').toUpperCase();
+
+      save.disabled = true;
+      save.textContent = 'Saving…';
+      try {
+        await dbExecute(
+          `UPDATE studios SET name = ?, description = ?, timezone = ?, currency = ?
+           WHERE id = ? AND owner_user_id = ?`,
+          [name, description, timezone, currency, r.id, session.user.id],
+        );
+        await loadStudios();
+      } catch (err) {
+        flash(createStatus, 'err', String(err));
+        save.disabled = false;
+        save.textContent = 'Save';
       }
-      studiosList.appendChild(li);
+    });
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn-cancel';
+    cancel.style.background = 'white';
+    cancel.style.color = 'var(--fg)';
+    cancel.style.border = '1px solid var(--border)';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => {
+      loadStudios();
+    });
+    btns.appendChild(save);
+    btns.appendChild(cancel);
+    form.appendChild(btns);
+
+    li.appendChild(form);
+    nameInput.focus();
+  }
+
+  function labeled(text, input) {
+    const wrap = document.createElement('div');
+    wrap.style.display = 'grid';
+    wrap.style.gap = '.25rem';
+    const lbl = document.createElement('label');
+    lbl.textContent = text;
+    lbl.style.fontSize = '.8rem';
+    lbl.style.color = 'var(--muted)';
+    wrap.appendChild(lbl);
+    wrap.appendChild(input);
+    return wrap;
+  }
+
+  async function renderPublicStudio(slug) {
+    homeHeader.hidden = true;
+    signinView.hidden = true;
+    signedInView.hidden = true;
+    try {
+      const res = await fetch(STUDIO_API + '/public/studios/' + encodeURIComponent(slug));
+      if (res.status === 404) {
+        notfoundView.hidden = false;
+        document.title = 'Not found — studio';
+        return;
+      }
+      if (!res.ok) throw new Error('public fetch failed: ' + res.status);
+      const r = await res.json();
+
+      publicHero.replaceChildren();
+      const h1 = document.createElement('h1');
+      h1.textContent = r.name;
+      publicHero.appendChild(h1);
+
+      const meta = document.createElement('p');
+      meta.className = 'meta';
+      const parts = [];
+      if (r.timezone) parts.push(r.timezone);
+      if (r.address) parts.push(r.address);
+      if (parts.length) meta.textContent = parts.join(' · ');
+      if (parts.length) publicHero.appendChild(meta);
+
+      if (r.description) {
+        const desc = document.createElement('p');
+        desc.className = 'desc';
+        desc.textContent = r.description;
+        publicHero.appendChild(desc);
+      }
+
+      publicView.hidden = false;
+      document.title = r.name + ' — studio';
+    } catch (err) {
+      notfoundView.hidden = false;
+      document.title = 'Error — studio';
+      console.error(err);
     }
   }
 
@@ -264,6 +467,13 @@
     });
     if (!res.ok) throw new Error('ai.generate failed: ' + res.status + ' ' + (await res.text()));
     return await res.json();
+  }
+
+  function route() {
+    const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
+    if (path === '') return { kind: 'home' };
+    if (/^[a-z0-9][a-z0-9-]{0,60}$/.test(path)) return { kind: 'public', slug: path };
+    return { kind: 'notfound' };
   }
 
   async function capture() {
@@ -294,7 +504,18 @@
       }
     }
   }
-  capture();
+
+  // Route dispatch: home (sign-in/dashboard) vs public studio page.
+  const r = route();
+  if (r.kind === 'home') {
+    capture();
+  } else if (r.kind === 'public') {
+    renderPublicStudio(r.slug);
+  } else {
+    homeHeader.hidden = true;
+    signinView.hidden = true;
+    notfoundView.hidden = false;
+  }
 
   document.getElementById('email-form').addEventListener('submit', async (e) => {
     e.preventDefault();
