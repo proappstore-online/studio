@@ -64,6 +64,16 @@
   .public-footer { margin-top: 1.5rem; padding: 1rem; background: #f1f5f9; border-radius: .5rem; color: var(--muted); font-size: .85rem; text-align: center; }
   .nav-home { display: inline-block; color: var(--accent); text-decoration: none; font-size: .85rem; margin-bottom: 1rem; }
   .nav-home:hover { text-decoration: underline; }
+  .admin-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1rem; }
+  .admin-header h1 { font-size: 1.5rem; margin: 0; }
+  .admin-header small { color: var(--muted); font-size: .85rem; }
+  .class-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+  .class-card { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: .5rem; padding: .75rem 1rem; background: white; border: 1px solid var(--border); border-radius: .5rem; }
+  .class-card .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+  .class-name { display: flex; align-items: center; gap: .5rem; font-weight: 600; }
+  .class-meta { color: var(--muted); font-size: .85rem; }
+  .danger { background: white; color: #991b1b; border: 1px solid #fecaca; }
+  .danger:hover { background: #fef2f2; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -149,6 +159,50 @@
       <p class="desc">No studio at this URL — it may have been renamed or never existed.</p>
     </div>
   </section>
+
+  <section id="admin-view" hidden>
+    <a href="/" class="nav-home">← all my studios</a>
+    <div class="admin-header">
+      <div>
+        <h1 id="admin-studio-name">Studio</h1>
+        <small id="admin-studio-slug"></small>
+      </div>
+      <a id="admin-public-link" href="#" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem;text-decoration:none">View public page →</a>
+    </div>
+
+    <h2>Class types</h2>
+    <div id="classes-empty" class="empty" hidden>
+      No class types yet. Add one below — these are the templates for sessions on the calendar.
+    </div>
+    <ul id="classes-list" class="class-list" hidden></ul>
+
+    <h2 style="font-size:1rem;margin-top:1.5rem">Add a class type</h2>
+    <form id="class-form" autocomplete="off">
+      <label for="class-name">Name</label>
+      <input id="class-name" name="className" type="text" required placeholder="Vinyasa Flow" maxlength="80">
+
+      <div class="row">
+        <div style="display:grid;gap:.5rem">
+          <label for="class-duration">Duration (minutes)</label>
+          <input id="class-duration" type="number" required value="60">
+        </div>
+        <div style="display:grid;gap:.5rem">
+          <label for="class-capacity">Default capacity</label>
+          <input id="class-capacity" type="number" required value="20">
+        </div>
+      </div>
+
+      <label for="class-color">Color</label>
+      <input id="class-color" type="color" value="#6366f1" style="height:2.5rem;padding:.25rem;width:5rem">
+
+      <button type="submit">Add class type</button>
+    </form>
+
+    <div id="admin-status" class="status" hidden></div>
+
+    <h2 style="font-size:1rem;margin-top:2rem;color:var(--muted)">Coming next</h2>
+    <p style="color:var(--muted);font-size:.9rem;margin:0">Sessions on a weekly calendar, instructors, clients, bookings.</p>
+  </section>
 </main>
 
 <script type="module">
@@ -163,13 +217,17 @@
   const signedInView = document.getElementById('signed-in-view');
   const publicView = document.getElementById('public-view');
   const notfoundView = document.getElementById('notfound-view');
+  const adminView = document.getElementById('admin-view');
   const publicHero = document.getElementById('public-hero');
   const status = document.getElementById('status');
   const createStatus = document.getElementById('create-status');
+  const adminStatus = document.getElementById('admin-status');
   const avatar = document.getElementById('avatar');
   const whoName = document.getElementById('who-name');
   const studiosList = document.getElementById('studios-list');
   const studiosEmpty = document.getElementById('studios-empty');
+  const classesList = document.getElementById('classes-list');
+  const classesEmpty = document.getElementById('classes-empty');
 
   let session = null;
 
@@ -302,6 +360,11 @@
     editBtn.addEventListener('click', () => beginEdit(li, r));
     actions.appendChild(editBtn);
 
+    const manageLink = document.createElement('a');
+    manageLink.href = '/' + r.slug + '/admin';
+    manageLink.textContent = 'Manage →';
+    actions.appendChild(manageLink);
+
     const publicLink = document.createElement('a');
     publicLink.href = '/' + r.slug;
     publicLink.textContent = 'View public page →';
@@ -412,6 +475,143 @@
     return wrap;
   }
 
+  let currentStudio = null; // set in admin view; used for class types operations
+
+  async function renderAdmin(slug) {
+    homeHeader.hidden = true;
+    signinView.hidden = true;
+    signedInView.hidden = true;
+
+    // Need a signed-in session to manage a studio.
+    let token = session?.token;
+    let user = session?.user;
+    if (!token) {
+      const cached = localStorage.getItem(SESSION_KEY);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          const fresh = await fetchMe(parsed.token);
+          session = { token: parsed.token, user: fresh };
+          token = parsed.token;
+          user = fresh;
+        } catch {
+          localStorage.removeItem(SESSION_KEY);
+        }
+      }
+    }
+
+    if (!token) {
+      // Not signed in. Show sign-in, with a hash to come back after.
+      homeHeader.hidden = false;
+      signinView.hidden = false;
+      return;
+    }
+
+    // Load studio and check ownership in one query.
+    const res = await fetch(STUDIO_API + '/query', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sql: 'SELECT id, slug, name, owner_user_id FROM studios WHERE slug = ? LIMIT 1',
+        params: [slug],
+      }),
+    });
+    if (!res.ok) {
+      notfoundView.hidden = false;
+      return;
+    }
+    const data = await res.json();
+    const studio = data.rows?.[0];
+    if (!studio) {
+      notfoundView.hidden = false;
+      return;
+    }
+    if (studio.owner_user_id !== user.id) {
+      // Not the owner — surface a clear "no access" but stay subtle: redirect
+      // to the public page instead of confirming the studio exists/doesn't.
+      window.location.replace('/' + slug);
+      return;
+    }
+
+    currentStudio = studio;
+    document.getElementById('admin-studio-name').textContent = studio.name;
+    document.getElementById('admin-studio-slug').textContent = '/' + studio.slug;
+    document.getElementById('admin-public-link').href = '/' + studio.slug;
+    adminView.hidden = false;
+    document.title = studio.name + ' · admin — studio';
+
+    await loadClasses();
+  }
+
+  async function loadClasses() {
+    if (!currentStudio) return;
+    const { rows } = await dbQuery(
+      'SELECT id, name, duration_minutes, default_capacity, color FROM class_types WHERE tenant_id = ? ORDER BY name',
+      [currentStudio.id],
+    );
+    renderClasses(rows);
+  }
+
+  function renderClasses(rows) {
+    classesList.replaceChildren();
+    if (!rows || rows.length === 0) {
+      classesEmpty.hidden = false;
+      classesList.hidden = true;
+      return;
+    }
+    classesEmpty.hidden = true;
+    classesList.hidden = false;
+    for (const r of rows) {
+      const li = document.createElement('li');
+      li.className = 'class-card';
+      li.dataset.id = r.id;
+
+      const name = document.createElement('div');
+      name.className = 'class-name';
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      if (r.color) dot.style.background = r.color;
+      const label = document.createElement('span');
+      label.textContent = r.name;
+      name.appendChild(dot);
+      name.appendChild(label);
+
+      const meta = document.createElement('div');
+      meta.className = 'class-meta';
+      meta.textContent = r.duration_minutes + ' min · cap ' + r.default_capacity;
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'card-btn danger btn-class-delete';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', () => deleteClass(r));
+
+      li.appendChild(name);
+      li.appendChild(meta);
+      li.appendChild(delBtn);
+      classesList.appendChild(li);
+    }
+  }
+
+  async function deleteClass(r) {
+    if (!currentStudio) return;
+    if (!confirm('Delete class type "' + r.name + '"? Existing sessions of this type will stay scheduled.')) {
+      return;
+    }
+    try {
+      await dbExecute(
+        'DELETE FROM class_types WHERE id = ? AND tenant_id = ?',
+        [r.id, currentStudio.id],
+      );
+      await loadClasses();
+    } catch (err) {
+      flash(adminStatus, 'err', String(err));
+    }
+  }
+
   async function renderPublicStudio(slug) {
     homeHeader.hidden = true;
     signinView.hidden = true;
@@ -472,7 +672,14 @@
   function route() {
     const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
     if (path === '') return { kind: 'home' };
-    if (/^[a-z0-9][a-z0-9-]{0,60}$/.test(path)) return { kind: 'public', slug: path };
+    const parts = path.split('/');
+    const slugRe = /^[a-z0-9][a-z0-9-]{0,60}$/;
+    if (parts.length === 1 && slugRe.test(parts[0])) {
+      return { kind: 'public', slug: parts[0] };
+    }
+    if (parts.length === 2 && slugRe.test(parts[0]) && parts[1] === 'admin') {
+      return { kind: 'admin', slug: parts[0] };
+    }
     return { kind: 'notfound' };
   }
 
@@ -505,12 +712,14 @@
     }
   }
 
-  // Route dispatch: home (sign-in/dashboard) vs public studio page.
+  // Route dispatch: home / public / admin / notfound.
   const r = route();
   if (r.kind === 'home') {
     capture();
   } else if (r.kind === 'public') {
     renderPublicStudio(r.slug);
+  } else if (r.kind === 'admin') {
+    renderAdmin(r.slug);
   } else {
     homeHeader.hidden = true;
     signinView.hidden = true;
@@ -584,6 +793,42 @@
       } else {
         flash(createStatus, 'err', msg);
       }
+    }
+  });
+
+  document.getElementById('class-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearFlash(adminStatus);
+    if (!currentStudio) return;
+    const name = document.getElementById('class-name').value.trim();
+    if (!name) return;
+    const duration = parseInt(document.getElementById('class-duration').value, 10);
+    const capacity = parseInt(document.getElementById('class-capacity').value, 10);
+    const color = document.getElementById('class-color').value;
+    if (!Number.isFinite(duration) || duration < 1 || duration > 480) {
+      flash(adminStatus, 'err', 'Duration must be between 1 and 480 minutes.');
+      return;
+    }
+    if (!Number.isFinite(capacity) || capacity < 1 || capacity > 200) {
+      flash(adminStatus, 'err', 'Capacity must be between 1 and 200.');
+      return;
+    }
+    const id = crypto.randomUUID();
+    try {
+      await dbExecute(
+        `INSERT INTO class_types (id, tenant_id, name, duration_minutes, default_capacity, color, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, currentStudio.id, name, duration, capacity, color, Date.now()],
+      );
+      flash(adminStatus, 'ok', 'Added ' + name + '.');
+      document.getElementById('class-form').reset();
+      // Restore default values after reset (form.reset() also clears them).
+      document.getElementById('class-duration').value = 60;
+      document.getElementById('class-capacity').value = 20;
+      document.getElementById('class-color').value = '#6366f1';
+      await loadClasses();
+    } catch (err) {
+      flash(adminStatus, 'err', String(err));
     }
   });
 

@@ -370,17 +370,20 @@ test.describe('edit studio (inline)', () => {
     expect(executed).toBe(false);
   });
 
-  test('Each card has a "View public page →" link pointing at /<slug>', async ({ page }) => {
+  test('Each card has Manage and View public page links pointing at /<slug>', async ({ page }) => {
     await signedIn(page, {
       studios: [
         { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', description: null, timezone: 'UTC', currency: 'AUD', created_at: 1 },
       ],
     });
     await page.goto('/');
-    const link = page.locator('.studio-card a').first();
-    await expect(link).toHaveText(/View public page/);
-    await expect(link).toHaveAttribute('href', '/yoga-haus');
-    await expect(link).toHaveAttribute('target', '_blank');
+
+    const manageLink = page.locator('.studio-card a').filter({ hasText: 'Manage' }).first();
+    await expect(manageLink).toHaveAttribute('href', '/yoga-haus/admin');
+
+    const publicLink = page.locator('.studio-card a').filter({ hasText: 'View public page' }).first();
+    await expect(publicLink).toHaveAttribute('href', '/yoga-haus');
+    await expect(publicLink).toHaveAttribute('target', '_blank');
   });
 });
 
@@ -433,5 +436,240 @@ test.describe('public studio page', () => {
     await expect(page.locator('#notfound-view')).toBeVisible();
     await page.waitForTimeout(200);
     expect(called).toBe(false);
+  });
+});
+
+test.describe('studio admin (/<slug>/admin)', () => {
+  function setupOwnerCheck(
+    page: import('@playwright/test').Page,
+    opts: { studio: Record<string, unknown> | null; classes?: Record<string, unknown>[] } = {
+      studio: null,
+    },
+  ) {
+    return page.route(STUDIO_API_QUERY, (route) => {
+      const body = JSON.parse(route.request().postData()!) as { sql: string };
+      if (body.sql.includes('FROM studios WHERE slug')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: opts.studio ? [opts.studio] : [],
+            meta: { changes: 0, duration: 0 },
+          }),
+        });
+      }
+      if (body.sql.includes('FROM class_types')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: opts.classes ?? [],
+            meta: { changes: 0, duration: 0 },
+          }),
+        });
+      }
+      return route.fulfill({ status: 200, body: '{"rows":[]}' });
+    });
+  }
+
+  test('shows admin view + empty class types state for the owner', async ({ page }) => {
+    await signedIn(page);
+    await setupOwnerCheck(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+      classes: [],
+    });
+
+    await page.goto('/yoga-haus/admin');
+
+    await expect(page.locator('#admin-view')).toBeVisible();
+    await expect(page.locator('#admin-studio-name')).toHaveText('Yoga Haus');
+    await expect(page.locator('#admin-studio-slug')).toHaveText('/yoga-haus');
+    await expect(page.locator('#classes-empty')).toBeVisible();
+    await expect(page.locator('#classes-list')).toBeHidden();
+    await expect(page).toHaveTitle(/Yoga Haus · admin/);
+  });
+
+  test('lists existing class types', async ({ page }) => {
+    await signedIn(page);
+    await setupOwnerCheck(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+      classes: [
+        { id: 'c1', name: 'Vinyasa Flow', duration_minutes: 60, default_capacity: 20, color: '#ff0000' },
+        { id: 'c2', name: 'Yin Yoga', duration_minutes: 75, default_capacity: 15, color: '#00ff00' },
+      ],
+    });
+    await page.goto('/yoga-haus/admin');
+    const cards = page.locator('.class-card');
+    await expect(cards).toHaveCount(2);
+    await expect(cards.nth(0)).toContainText('Vinyasa Flow');
+    await expect(cards.nth(0)).toContainText('60 min · cap 20');
+    await expect(cards.nth(1)).toContainText('Yin Yoga');
+    await expect(cards.nth(1)).toContainText('75 min · cap 15');
+  });
+
+  test('redirects to public page when user is not the owner', async ({ page }) => {
+    await signedIn(page);
+    await setupOwnerCheck(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:999' },
+    });
+    await page.route(STUDIO_API_PUBLIC, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', description: null }),
+      }),
+    );
+
+    await page.goto('/yoga-haus/admin');
+
+    await expect(page).toHaveURL(/\/yoga-haus$/);
+    await expect(page.locator('#public-view')).toBeVisible();
+    await expect(page.locator('#admin-view')).toBeHidden();
+  });
+
+  test('shows sign-in when not authenticated', async ({ page }) => {
+    // No localStorage seeded, /auth/me returns 401.
+    await page.route(`${FAS_API}/v1/auth/me`, (route) =>
+      route.fulfill({ status: 401, body: '' }),
+    );
+    await page.goto('/yoga-haus/admin');
+
+    await expect(page.locator('#signin-view')).toBeVisible();
+    await expect(page.locator('#admin-view')).toBeHidden();
+  });
+
+  test('Add class type POSTs INSERT with correct bindings then reloads', async ({ page }) => {
+    let insertCall: { sql: string; params: unknown[] } | null = null;
+    let queryCount = 0;
+    let classCallCount = 0;
+    await signedIn(page);
+    await page.unroute(STUDIO_API_QUERY);
+    await page.route(STUDIO_API_QUERY, async (route) => {
+      const body = JSON.parse(route.request().postData()!) as { sql: string };
+      queryCount++;
+      if (body.sql.includes('FROM studios')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: [{ id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' }],
+            meta: { changes: 0, duration: 0 },
+          }),
+        });
+      }
+      // class_types — return empty first, then [the inserted one]
+      classCallCount++;
+      const rows =
+        classCallCount === 1
+          ? []
+          : [{ id: 'new', name: 'Vinyasa Flow', duration_minutes: 60, default_capacity: 20, color: '#6366f1' }];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ rows, meta: { changes: 0, duration: 0 } }),
+      });
+    });
+    await page.route(STUDIO_API_EXECUTE, async (route) => {
+      insertCall = JSON.parse(route.request().postData()!);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ meta: { changes: 1, duration: 0, last_row_id: 1 } }),
+      });
+    });
+
+    await page.goto('/yoga-haus/admin');
+    await expect(page.locator('#classes-empty')).toBeVisible();
+
+    await page.fill('#class-name', 'Vinyasa Flow');
+    await page.getByRole('button', { name: /Add class type/i }).click();
+
+    await expect(page.locator('#admin-status')).toContainText(/Added Vinyasa Flow/);
+    await expect(page.locator('.class-card')).toHaveCount(1);
+
+    expect(insertCall).not.toBeNull();
+    const c = insertCall as unknown as { sql: string; params: unknown[] };
+    expect(c.sql).toContain('INSERT INTO class_types');
+    // Bindings: id, tenant_id, name, duration_minutes, default_capacity, color, created_at
+    expect(c.params[1]).toBe('a'); // tenant_id = studio.id
+    expect(c.params[2]).toBe('Vinyasa Flow');
+    expect(c.params[3]).toBe(60); // default duration
+    expect(c.params[4]).toBe(20); // default capacity
+    expect(c.params[5]).toBe('#6366f1'); // default color
+    expect(typeof c.params[0]).toBe('string'); // UUID
+    expect(typeof c.params[6]).toBe('number'); // created_at
+  });
+
+  test('rejects invalid duration', async ({ page }) => {
+    await signedIn(page);
+    await setupOwnerCheck(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+    });
+    let executed = false;
+    await page.route(STUDIO_API_EXECUTE, (route) => {
+      executed = true;
+      return route.fulfill({ status: 200, body: '{}' });
+    });
+    await page.goto('/yoga-haus/admin');
+    await page.fill('#class-name', 'Test');
+    await page.fill('#class-duration', '9999');
+    await page.getByRole('button', { name: /Add class type/i }).click();
+
+    await expect(page.locator('#admin-status')).toContainText(/Duration must be/);
+    expect(executed).toBe(false);
+  });
+
+  test('Delete class type sends DELETE scoped to tenant_id', async ({ page }) => {
+    let deleteCall: { sql: string; params: unknown[] } | null = null;
+    let classQueryCount = 0;
+    await signedIn(page);
+    await page.unroute(STUDIO_API_QUERY);
+    await page.route(STUDIO_API_QUERY, async (route) => {
+      const body = JSON.parse(route.request().postData()!) as { sql: string };
+      if (body.sql.includes('FROM studios')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: [{ id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' }],
+            meta: { changes: 0, duration: 0 },
+          }),
+        });
+      }
+      classQueryCount++;
+      const rows =
+        classQueryCount === 1
+          ? [{ id: 'c1', name: 'Vinyasa', duration_minutes: 60, default_capacity: 20, color: '#fff' }]
+          : [];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ rows, meta: { changes: 0, duration: 0 } }),
+      });
+    });
+    await page.route(STUDIO_API_EXECUTE, async (route) => {
+      deleteCall = JSON.parse(route.request().postData()!);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ meta: { changes: 1, duration: 0, last_row_id: 0 } }),
+      });
+    });
+
+    // Auto-accept the confirm() dialog
+    page.on('dialog', (d) => d.accept());
+
+    await page.goto('/yoga-haus/admin');
+    await expect(page.locator('.class-card')).toHaveCount(1);
+    await page.locator('.btn-class-delete').click();
+
+    // After delete, the list reloads and shows empty state
+    await expect(page.locator('#classes-empty')).toBeVisible();
+    expect(deleteCall).not.toBeNull();
+    const d = deleteCall as unknown as { sql: string; params: unknown[] };
+    expect(d.sql).toContain('DELETE FROM class_types');
+    expect(d.sql).toContain('id = ?');
+    expect(d.sql).toContain('tenant_id = ?');
+    expect(d.params).toEqual(['c1', 'a']);
   });
 });
