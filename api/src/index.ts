@@ -147,6 +147,35 @@ app.get('/public/studios', async (c) => {
   return c.json(result.results);
 });
 
+/** Public class schedule for a studio — sessions in the next `days` days. */
+app.get('/public/studios/:slug/sessions', async (c) => {
+  const slug = c.req.param('slug');
+  if (!SLUG_RE.test(slug)) return c.text('invalid slug', 400);
+  const studio = await c.env.DB.prepare('SELECT id FROM studios WHERE slug = ? LIMIT 1')
+    .bind(slug)
+    .first<{ id: string }>();
+  if (!studio) return c.text('not found', 404);
+
+  const daysRaw = parseInt(c.req.query('days') ?? '14', 10);
+  const days = Math.min(Number.isFinite(daysRaw) && daysRaw > 0 ? daysRaw : 14, 60);
+  const now = Date.now();
+  const horizon = now + days * 24 * 60 * 60 * 1000;
+
+  const result = await c.env.DB.prepare(
+    `SELECT s.id, s.starts_at, s.ends_at, s.capacity, s.location, s.status,
+            c.name AS class_name, c.color AS class_color, c.category AS class_category,
+            st.name AS instructor_name, st.avatar_url AS instructor_avatar
+     FROM sessions s
+     LEFT JOIN class_types c ON c.id = s.class_type_id AND c.tenant_id = s.tenant_id
+     LEFT JOIN staff st     ON st.id = s.instructor_id AND st.tenant_id = s.tenant_id
+     WHERE s.tenant_id = ? AND s.starts_at >= ? AND s.starts_at < ? AND s.status = 'scheduled'
+     ORDER BY s.starts_at`,
+  )
+    .bind(studio.id, now, horizon)
+    .all();
+  return c.json(result.results);
+});
+
 app.get('/tables', async (c) => {
   await requireUser(c);
   const result = await c.env.DB.prepare(

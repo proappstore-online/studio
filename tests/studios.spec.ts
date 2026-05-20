@@ -880,22 +880,23 @@ test.describe('schedules + upcoming sessions', () => {
     const b = batchCall as unknown as { statements: { sql: string; params: unknown[] }[] };
     // First statement: INSERT INTO schedules
     expect(b.statements[0].sql).toContain('INSERT INTO schedules');
-    // Mon=1, Wed=3
-    expect(b.statements[0].params[3]).toBe('1,3');
-    expect(b.statements[0].params[4]).toBe('18:00');
-    expect(b.statements[0].params[6]).toBe(20); // capacity from class default
+    // Bindings order: id, tenant_id, class_type_id, instructor_id, days_of_week,
+    // start_time, duration_minutes, capacity, location, starts_on, created_at
+    expect(b.statements[0].params[3]).toBeNull(); // no instructor picked
+    expect(b.statements[0].params[4]).toBe('1,3'); // Mon=1, Wed=3
+    expect(b.statements[0].params[5]).toBe('18:00');
+    expect(b.statements[0].params[7]).toBe(20); // capacity from class default
 
     // Subsequent statements: session INSERTs
     expect(b.statements.length).toBeGreaterThan(1);
     for (const s of b.statements.slice(1)) {
       expect(s.sql).toContain('INSERT INTO sessions');
-      // schedule_id is the last bound param (13 cols total)
+      // schedule_id is the last bound param
       expect(s.params[s.params.length - 1]).toBe(b.statements[0].params[0]);
     }
   });
 
-  test('upcoming sessions list groups by day and shows time + class', async ({ page }) => {
-    const now = Date.now();
+  test('upcoming sessions render in the 7-day week-view grid', async ({ page }) => {
     const oneHour = 60 * 60 * 1000;
     const tomorrow9am = new Date();
     tomorrow9am.setDate(tomorrow9am.getDate() + 1);
@@ -931,13 +932,15 @@ test.describe('schedules + upcoming sessions', () => {
     });
     await page.goto('/yoga-haus/admin');
 
-    const group = page.locator('.day-group');
-    await expect(group).toHaveCount(1);
-    const cards = page.locator('.session-card');
-    await expect(cards).toHaveCount(2);
-    await expect(cards.nth(0)).toContainText('Sunrise Vinyasa');
-    await expect(cards.nth(0)).toContainText('Main studio');
-    await expect(cards.nth(0)).toContainText('20 spots');
-    await expect(cards.nth(1)).toContainText('Evening Yin');
+    // Week-view: 7 day columns, each with header + sessions stacked chronologically.
+    const cols = page.locator('.week-col');
+    await expect(cols).toHaveCount(7);
+    // First column is today (highlighted).
+    await expect(cols.nth(0).locator('.day-header.today')).toBeVisible();
+    // Tomorrow's column has 2 sessions, sorted by time.
+    const tomorrowCells = cols.nth(1).locator('.week-cell');
+    await expect(tomorrowCells).toHaveCount(2);
+    await expect(tomorrowCells.nth(0)).toContainText('Sunrise Vinyasa');
+    await expect(tomorrowCells.nth(1)).toContainText('Evening Yin');
   });
 });

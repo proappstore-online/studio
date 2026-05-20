@@ -10,7 +10,7 @@ test.describe('studio sign-in page', () => {
     await expect(page.getByText(/Book classes, manage clients/)).toBeVisible();
 
     // Both form + OAuth are visible on initial load
-    await expect(page.getByLabel('Email')).toBeVisible();
+    await expect(page.locator('#email')).toBeVisible();
     await expect(page.getByRole('button', { name: /Email me a sign-in link/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /Continue with Google/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /Continue with GitHub/i })).toBeVisible();

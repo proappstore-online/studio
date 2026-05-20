@@ -14,7 +14,7 @@
     font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
   }
   body { margin: 0; background: var(--bg); color: var(--fg); min-height: 100dvh; display: grid; place-items: center; }
-  main { width: min(560px, 92vw); padding: 2rem; }
+  main { width: min(760px, 96vw); padding: 2rem; }
   h1 { font-size: 1.75rem; margin: 0 0 .25rem; letter-spacing: -0.02em; }
   h2 { font-size: 1.1rem; margin: 1.5rem 0 .75rem; }
   p.lede { color: var(--muted); margin: 0 0 1.5rem; }
@@ -88,6 +88,29 @@
   .session-card .time { font-weight: 600; font-variant-numeric: tabular-nums; }
   .session-card .info { color: var(--muted); font-size: .85rem; }
   .session-card .info strong { color: var(--fg); font-weight: 500; display: block; }
+  .session-card .swatch { width: 4px; align-self: stretch; border-radius: 2px; background: var(--accent); }
+  .week-view { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .5rem; }
+  .week-col { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+  .week-col .day-header { font-size: .75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: .35rem .5rem; background: #f1f5f9; border-radius: .375rem; text-align: center; }
+  .week-col .day-header.today { background: var(--accent); color: white; }
+  .week-col .day-empty { font-size: .75rem; color: var(--muted); text-align: center; padding: .35rem .25rem; font-style: italic; }
+  .week-cell { font-size: .75rem; padding: .35rem .5rem; background: white; border: 1px solid var(--border); border-left-width: 3px; border-radius: .25rem; line-height: 1.3; }
+  .week-cell .t { font-weight: 600; font-variant-numeric: tabular-nums; display: block; }
+  .week-cell .n { color: var(--muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .instructor-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+  .instructor-card { display: grid; grid-template-columns: 40px 1fr auto; gap: .75rem; align-items: center; padding: .75rem 1rem; background: white; border: 1px solid var(--border); border-radius: .5rem; }
+  .instructor-card .avatar { width: 40px; height: 40px; }
+  .instructor-card .info strong { display: block; }
+  .instructor-card .info small { color: var(--muted); font-size: .8rem; }
+  .session-public { display: grid; grid-template-columns: auto 1fr auto; gap: .75rem; align-items: center; padding: .75rem 1rem; background: white; border: 1px solid var(--border); border-left-width: 3px; border-radius: .5rem; }
+  .session-public .time { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .session-public .info strong { display: block; }
+  .session-public .info small { color: var(--muted); font-size: .8rem; }
+  .session-public .spots { color: var(--muted); font-size: .85rem; white-space: nowrap; }
+  @media (max-width: 720px) {
+    main { width: min(680px, 96vw); }
+    .week-view { grid-template-columns: 1fr; }
+  }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -160,6 +183,13 @@
   <section id="public-view" hidden>
     <a href="/" class="nav-home">← wellness directory</a>
     <div id="public-hero" class="public-hero"></div>
+
+    <h2 style="margin-top:1.5rem">Upcoming classes</h2>
+    <div id="public-sessions-empty" class="empty" hidden>
+      No upcoming classes scheduled. Check back soon.
+    </div>
+    <div id="public-sessions" class="session-list" hidden></div>
+
     <div class="public-footer">
       Booking opens soon. This studio is hosted on
       <a href="/" style="color:var(--accent)">wellness</a> — multi-tenant booking platform.
@@ -219,6 +249,36 @@
 
     <div id="admin-status" class="status" hidden></div>
 
+    <h2 style="margin-top:2rem">Instructors</h2>
+    <div id="instructors-empty" class="empty" hidden>
+      No instructors yet. Add one below — instructors can teach scheduled classes.
+    </div>
+    <ul id="instructors-list" class="instructor-list" hidden></ul>
+
+    <h2 style="font-size:1rem;margin-top:1.5rem">Add an instructor</h2>
+    <form id="instructor-form" autocomplete="off">
+      <label for="instructor-name">Name</label>
+      <input id="instructor-name" name="instructorName" type="text" required placeholder="Alex Morgan" maxlength="80">
+
+      <div class="row">
+        <div style="display:grid;gap:.5rem">
+          <label for="instructor-email">Email (optional)</label>
+          <input id="instructor-email" name="instructorEmail" type="email" placeholder="alex@studio.com">
+        </div>
+        <div style="display:grid;gap:.5rem">
+          <label for="instructor-avatar">Avatar URL (optional)</label>
+          <input id="instructor-avatar" name="instructorAvatar" type="url" placeholder="https://...">
+        </div>
+      </div>
+
+      <label for="instructor-bio">Bio (optional)</label>
+      <textarea id="instructor-bio" name="instructorBio" placeholder="Vinyasa-trained, 200hr RYT. 10+ years teaching." maxlength="500"></textarea>
+
+      <button type="submit">Add instructor</button>
+    </form>
+
+    <div id="instructor-status" class="status" hidden></div>
+
     <h2 style="margin-top:2rem">Schedules</h2>
     <p style="color:var(--muted);font-size:.85rem;margin:0 0 .75rem">
       Recurring weekly classes. Sessions for the next 4 weeks are generated automatically.
@@ -233,6 +293,11 @@
       <label for="schedule-class">Class type</label>
       <select id="schedule-class" required>
         <option value="" disabled selected>Pick a class type…</option>
+      </select>
+
+      <label for="schedule-instructor">Instructor (optional)</label>
+      <select id="schedule-instructor">
+        <option value="">Anyone / TBD</option>
       </select>
 
       <label>Days of the week</label>
@@ -265,11 +330,11 @@
 
     <div id="schedule-status" class="status" hidden></div>
 
-    <h2 style="margin-top:2rem">Upcoming sessions (next 14 days)</h2>
+    <h2 style="margin-top:2rem">Calendar — next 7 days</h2>
     <div id="sessions-empty" class="empty" hidden>
       No upcoming sessions. Add a schedule above to generate them.
     </div>
-    <div id="sessions-list" class="session-list" hidden></div>
+    <div id="week-view" class="week-view" hidden></div>
   </section>
 </main>
 
@@ -298,9 +363,12 @@
   const classesEmpty = document.getElementById('classes-empty');
   const schedulesList = document.getElementById('schedules-list');
   const schedulesEmpty = document.getElementById('schedules-empty');
-  const sessionsList = document.getElementById('sessions-list');
+  const weekView = document.getElementById('week-view');
   const sessionsEmpty = document.getElementById('sessions-empty');
   const scheduleStatus = document.getElementById('schedule-status');
+  const instructorsList = document.getElementById('instructors-list');
+  const instructorsEmpty = document.getElementById('instructors-empty');
+  const instructorStatus = document.getElementById('instructor-status');
 
   // Mindbody-inspired category list. Stored as the slug; rendered as the label.
   const CATEGORIES = [
@@ -651,7 +719,121 @@
     adminView.hidden = false;
     document.title = studio.name + ' · admin — studio';
 
-    await Promise.all([loadClasses(), loadSchedules(), loadSessions()]);
+    await Promise.all([loadClasses(), loadInstructors(), loadSchedules(), loadSessions()]);
+  }
+
+  // -------------------------------------------------------------------------
+  // Instructors (staff)
+  // -------------------------------------------------------------------------
+
+  let instructorsCache = [];
+
+  async function loadInstructors() {
+    if (!currentStudio) return;
+    const { rows } = await dbQuery(
+      `SELECT id, name, email, avatar_url, bio
+       FROM staff WHERE tenant_id = ? AND role = 'instructor' ORDER BY name`,
+      [currentStudio.id],
+    );
+    instructorsCache = rows ?? [];
+    renderInstructors(instructorsCache);
+    populateInstructorDropdown();
+  }
+
+  function renderInstructors(rows) {
+    instructorsList.replaceChildren();
+    if (rows.length === 0) {
+      instructorsEmpty.hidden = false;
+      instructorsList.hidden = true;
+      return;
+    }
+    instructorsEmpty.hidden = true;
+    instructorsList.hidden = false;
+    for (const r of rows) {
+      const li = document.createElement('li');
+      li.className = 'instructor-card';
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      if (r.avatar_url) {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.src = r.avatar_url;
+        avatar.appendChild(img);
+      } else {
+        avatar.textContent = (r.name || '?').slice(0, 1).toUpperCase();
+      }
+
+      const info = document.createElement('div');
+      info.className = 'info';
+      const strong = document.createElement('strong');
+      strong.textContent = r.name;
+      info.appendChild(strong);
+      if (r.email || r.bio) {
+        const small = document.createElement('small');
+        small.textContent = [r.email, r.bio ? r.bio.slice(0, 80) + (r.bio.length > 80 ? '…' : '') : '']
+          .filter(Boolean)
+          .join(' · ');
+        info.appendChild(small);
+      }
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'card-btn danger btn-instructor-delete';
+      del.textContent = 'Delete';
+      del.addEventListener('click', () => deleteInstructor(r));
+
+      li.appendChild(avatar);
+      li.appendChild(info);
+      li.appendChild(del);
+      instructorsList.appendChild(li);
+    }
+  }
+
+  function populateInstructorDropdown() {
+    const sel = document.getElementById('schedule-instructor');
+    const previousValue = sel.value;
+    sel.replaceChildren();
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = instructorsCache.length ? 'Anyone / TBD' : 'Add an instructor first (optional)';
+    sel.appendChild(none);
+    for (const i of instructorsCache) {
+      const opt = document.createElement('option');
+      opt.value = i.id;
+      opt.textContent = i.name;
+      sel.appendChild(opt);
+    }
+    // Restore selection if still valid (e.g. when adding a new instructor mid-flow).
+    if (previousValue && instructorsCache.some((i) => i.id === previousValue)) {
+      sel.value = previousValue;
+    }
+  }
+
+  async function deleteInstructor(r) {
+    if (!currentStudio) return;
+    if (!confirm('Delete instructor "' + r.name + '"? Existing sessions and schedules referencing them stay but lose the assignment.')) return;
+    try {
+      // Clear instructor_id on schedules/sessions that reference this instructor,
+      // then delete the staff row. Done as a batch for atomicity.
+      await dbBatch([
+        {
+          sql: 'UPDATE schedules SET instructor_id = NULL WHERE tenant_id = ? AND instructor_id = ?',
+          params: [currentStudio.id, r.id],
+        },
+        {
+          sql: 'UPDATE sessions SET instructor_id = NULL WHERE tenant_id = ? AND instructor_id = ?',
+          params: [currentStudio.id, r.id],
+        },
+        {
+          sql: 'DELETE FROM staff WHERE id = ? AND tenant_id = ?',
+          params: [r.id, currentStudio.id],
+        },
+      ]);
+      await Promise.all([loadInstructors(), loadSchedules(), loadSessions()]);
+    } catch (err) {
+      flash(instructorStatus, 'err', String(err));
+    }
   }
 
   let classTypesCache = [];
@@ -861,71 +1043,82 @@
   async function loadSessions() {
     if (!currentStudio) return;
     const now = Date.now();
-    const horizon = now + 14 * 24 * 60 * 60 * 1000;
+    const horizon = now + 7 * 24 * 60 * 60 * 1000;
     const { rows } = await dbQuery(
       `SELECT s.id, s.starts_at, s.ends_at, s.capacity, s.location, s.status,
-              c.name AS class_name, c.color AS class_color, c.category AS class_category
+              c.name AS class_name, c.color AS class_color, c.category AS class_category,
+              st.name AS instructor_name
        FROM sessions s
        LEFT JOIN class_types c ON c.id = s.class_type_id AND c.tenant_id = s.tenant_id
+       LEFT JOIN staff st     ON st.id = s.instructor_id AND st.tenant_id = s.tenant_id
        WHERE s.tenant_id = ? AND s.starts_at >= ? AND s.starts_at < ? AND s.status = 'scheduled'
        ORDER BY s.starts_at`,
       [currentStudio.id, now, horizon],
     );
-    renderSessions(rows ?? []);
+    renderWeekView(rows ?? []);
   }
 
-  function renderSessions(rows) {
-    sessionsList.replaceChildren();
+  function renderWeekView(rows) {
+    weekView.replaceChildren();
     if (rows.length === 0) {
       sessionsEmpty.hidden = false;
-      sessionsList.hidden = true;
+      weekView.hidden = true;
       return;
     }
     sessionsEmpty.hidden = true;
-    sessionsList.hidden = false;
+    weekView.hidden = false;
 
-    // Group by local date string.
-    const groups = new Map();
-    const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+    // Build 7 day columns starting today.
+    const dayHeaderFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' });
     const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Bucket sessions by yyyy-mm-dd.
+    const buckets = new Map();
     for (const r of rows) {
       const d = new Date(r.starts_at);
-      const key = d.toDateString();
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(r);
+      d.setHours(0, 0, 0, 0);
+      const k = d.getTime();
+      if (!buckets.has(k)) buckets.set(k, []);
+      buckets.get(k).push(r);
     }
 
-    for (const [key, items] of groups) {
-      const wrap = document.createElement('div');
-      wrap.className = 'day-group';
-      const h3 = document.createElement('h3');
-      h3.textContent = dayFmt.format(new Date(key));
-      wrap.appendChild(h3);
-      const inner = document.createElement('div');
-      inner.style.display = 'grid';
-      inner.style.gap = '.5rem';
-      for (const r of items) {
-        const card = document.createElement('div');
-        card.className = 'session-card';
-        const time = document.createElement('div');
-        time.className = 'time';
-        time.textContent = timeFmt.format(new Date(r.starts_at));
-        const info = document.createElement('div');
-        info.className = 'info';
-        const cls = document.createElement('strong');
-        cls.textContent = r.class_name ?? 'Class';
-        const meta = document.createElement('span');
-        const parts = [r.capacity + ' spots'];
-        if (r.location) parts.push(r.location);
-        meta.textContent = parts.join(' · ');
-        info.appendChild(cls);
-        info.appendChild(meta);
-        card.appendChild(time);
-        card.appendChild(info);
-        inner.appendChild(card);
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(today);
+      day.setDate(day.getDate() + i);
+      const col = document.createElement('div');
+      col.className = 'week-col';
+
+      const header = document.createElement('div');
+      header.className = 'day-header' + (i === 0 ? ' today' : '');
+      header.textContent = dayHeaderFmt.format(day);
+      col.appendChild(header);
+
+      const items = buckets.get(day.getTime()) ?? [];
+      if (items.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'day-empty';
+        empty.textContent = '—';
+        col.appendChild(empty);
+      } else {
+        for (const r of items) {
+          const cell = document.createElement('div');
+          cell.className = 'week-cell';
+          cell.style.borderLeftColor = r.class_color || 'var(--accent)';
+          const t = document.createElement('span');
+          t.className = 't';
+          t.textContent = timeFmt.format(new Date(r.starts_at));
+          const n = document.createElement('span');
+          n.className = 'n';
+          n.textContent = r.class_name || 'Class';
+          n.title = (r.class_name || 'Class') + (r.instructor_name ? ' · ' + r.instructor_name : '') + ' · ' + r.capacity + ' spots';
+          cell.appendChild(t);
+          cell.appendChild(n);
+          col.appendChild(cell);
+        }
       }
-      wrap.appendChild(inner);
-      sessionsList.appendChild(wrap);
+      weekView.appendChild(col);
     }
   }
 
@@ -962,6 +1155,10 @@
       publicHero.replaceChildren();
       const h1 = document.createElement('h1');
       h1.textContent = r.name;
+      if (r.brand_color) {
+        h1.style.color = r.brand_color;
+        publicView.style.setProperty('--accent', r.brand_color);
+      }
       publicHero.appendChild(h1);
 
       const meta = document.createElement('p');
@@ -980,11 +1177,81 @@
       }
 
       publicView.hidden = false;
-      document.title = r.name + ' — studio';
+      document.title = r.name + ' — wellness';
+
+      await renderPublicSessions(slug);
     } catch (err) {
       notfoundView.hidden = false;
-      document.title = 'Error — studio';
+      document.title = 'Error — wellness';
       console.error(err);
+    }
+  }
+
+  async function renderPublicSessions(slug) {
+    const empty = document.getElementById('public-sessions-empty');
+    const list = document.getElementById('public-sessions');
+    try {
+      const res = await fetch(DATA_API + '/public/studios/' + encodeURIComponent(slug) + '/sessions?days=14');
+      if (!res.ok) return;
+      const rows = await res.json();
+      list.replaceChildren();
+      if (!Array.isArray(rows) || rows.length === 0) {
+        empty.hidden = false;
+        list.hidden = true;
+        return;
+      }
+      empty.hidden = true;
+      list.hidden = false;
+
+      const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+      const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+      const groups = new Map();
+      for (const r of rows) {
+        const d = new Date(r.starts_at);
+        const key = d.toDateString();
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(r);
+      }
+      for (const [key, items] of groups) {
+        const wrap = document.createElement('div');
+        wrap.className = 'day-group';
+        const h3 = document.createElement('h3');
+        h3.textContent = dayFmt.format(new Date(key));
+        wrap.appendChild(h3);
+        const inner = document.createElement('div');
+        inner.style.display = 'grid';
+        inner.style.gap = '.5rem';
+        for (const r of items) {
+          const card = document.createElement('div');
+          card.className = 'session-public';
+          card.style.borderLeftColor = r.class_color || 'var(--accent)';
+          const time = document.createElement('div');
+          time.className = 'time';
+          time.textContent = timeFmt.format(new Date(r.starts_at));
+          const info = document.createElement('div');
+          info.className = 'info';
+          const cls = document.createElement('strong');
+          cls.textContent = r.class_name ?? 'Class';
+          const sub = document.createElement('small');
+          const subParts = [];
+          if (r.instructor_name) subParts.push(r.instructor_name);
+          if (r.location) subParts.push(r.location);
+          sub.textContent = subParts.join(' · ');
+          info.appendChild(cls);
+          if (subParts.length) info.appendChild(sub);
+          const spots = document.createElement('div');
+          spots.className = 'spots';
+          spots.textContent = r.capacity + ' spots';
+          card.appendChild(time);
+          card.appendChild(info);
+          card.appendChild(spots);
+          inner.appendChild(card);
+        }
+        wrap.appendChild(inner);
+        list.appendChild(wrap);
+      }
+    } catch (err) {
+      console.error('public sessions:', err);
     }
   }
 
@@ -1169,6 +1436,35 @@
     }
   });
 
+  document.getElementById('instructor-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearFlash(instructorStatus);
+    if (!currentStudio) return;
+    const name = document.getElementById('instructor-name').value.trim();
+    if (!name) return;
+    const email = document.getElementById('instructor-email').value.trim() || null;
+    const avatarUrl = document.getElementById('instructor-avatar').value.trim() || null;
+    const bio = document.getElementById('instructor-bio').value.trim() || null;
+
+    const id = crypto.randomUUID();
+    try {
+      await dbExecute(
+        `INSERT INTO staff (id, tenant_id, user_id, role, name, email, avatar_url, bio, created_at)
+         VALUES (?, ?, ?, 'instructor', ?, ?, ?, ?, ?)`,
+        // user_id is intentionally a placeholder (id) for now — when an
+        // instructor later signs in with their own FAS account we can link
+        // them via a separate flow. Using the staff row's own UUID keeps the
+        // UNIQUE(tenant_id, user_id) constraint happy.
+        [id, currentStudio.id, id, name, email, avatarUrl, bio, Date.now()],
+      );
+      flash(instructorStatus, 'ok', 'Added ' + name + '.');
+      document.getElementById('instructor-form').reset();
+      await loadInstructors();
+    } catch (err) {
+      flash(instructorStatus, 'err', String(err));
+    }
+  });
+
   document.getElementById('schedule-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     clearFlash(scheduleStatus);
@@ -1203,6 +1499,8 @@
       return;
     }
     const location = document.getElementById('schedule-location').value.trim() || null;
+    const instructorIdRaw = document.getElementById('schedule-instructor').value;
+    const instructorId = instructorIdRaw || null;
 
     const scheduleId = crypto.randomUUID();
     const now = Date.now();
@@ -1227,11 +1525,12 @@
                   (id, tenant_id, class_type_id, instructor_id, days_of_week, start_time,
                    duration_minutes, capacity, location, is_virtual, meeting_url,
                    starts_on, ends_on, status, created_at)
-                VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, NULL, ?, NULL, 'active', ?)`,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, NULL, 'active', ?)`,
           params: [
             scheduleId,
             currentStudio.id,
             classTypeId,
+            instructorId,
             days,
             startTime,
             classType.duration_minutes,
@@ -1245,11 +1544,12 @@
           sql: `INSERT INTO sessions
                   (id, tenant_id, class_type_id, instructor_id, starts_at, ends_at,
                    capacity, location, is_virtual, meeting_url, status, created_at, schedule_id)
-                VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 0, NULL, 'scheduled', ?, ?)`,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 'scheduled', ?, ?)`,
           params: [
             crypto.randomUUID(),
             currentStudio.id,
             classTypeId,
+            instructorId,
             ts,
             ts + classType.duration_minutes * 60_000,
             capacity,
