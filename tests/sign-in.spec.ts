@@ -5,8 +5,8 @@ const FAS_API = 'https://api.freeappstore.online';
 test.describe('studio sign-in page', () => {
   test('renders title, lede, and both sign-in surfaces', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveTitle(/studio/);
-    await expect(page.getByRole('heading', { name: 'studio' })).toBeVisible();
+    await expect(page).toHaveTitle(/wellness/);
+    await expect(page.getByRole('heading', { name: 'wellness' })).toBeVisible();
     await expect(page.getByText(/Book classes, manage clients/)).toBeVisible();
 
     // Both form + OAuth are visible on initial load
@@ -59,7 +59,7 @@ test.describe('OAuth redirect construction', () => {
       const url = new URL(captured!);
       expect(url.origin).toBe(FAS_API);
       expect(url.pathname).toBe(`/v1/auth/${provider}/start`);
-      expect(url.searchParams.get('app_id')).toBe('studio');
+      expect(url.searchParams.get('app_id')).toBe('wellness');
       const ret = url.searchParams.get('return_to');
       expect(ret).toBeTruthy();
       expect(ret).not.toContain('#');
@@ -138,7 +138,7 @@ test.describe('cached session', () => {
     });
 
     // Stub data-worker so loadStudios() doesn't hit the real network in CI.
-    await page.route(/data-studio\.proappstore\.online\/query/, (route) =>
+    await page.route(/data-wellness\.proappstore\.online\/query/, (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -163,7 +163,7 @@ test.describe('cached session', () => {
         body: JSON.stringify({ id: 'gh:42', login: 'alice', avatarUrl: null }),
       }),
     );
-    await page.route(/data-studio\.proappstore\.online\/query/, (route) =>
+    await page.route(/data-wellness\.proappstore\.online\/query/, (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -222,7 +222,7 @@ test.describe('OAuth post-redirect session capture', () => {
         body: JSON.stringify({ id: 'google:abc', login: 'bob', avatarUrl: null }),
       }),
     );
-    await page.route(/data-studio\.proappstore\.online\/query/, (route) =>
+    await page.route(/data-wellness\.proappstore\.online\/query/, (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',

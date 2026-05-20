@@ -1,19 +1,15 @@
-name = "studio-api"
+name = "wellness-api"
 main = "src/index.ts"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 [vars]
-APP_ID = "studio"
+APP_ID = "wellness"
 FAS_API_BASE = "https://api.freeappstore.online"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "studio"
-database_id = "1dc09e08-cbc0-46ef-bb86-9ff7f322cdbb"
+database_name = "wellness"
+database_id = "41425924-b57d-40ce-bf1a-2e8dfac9ef8b"
 migrations_dir = "../migrations"
-
-# TODO: bind data-studio.proappstore.online as a custom domain once the
-# CF API token has Zone:Edit on proappstore.online. For now the SDK
-# talks to https://studio-api.<account>.workers.dev directly.

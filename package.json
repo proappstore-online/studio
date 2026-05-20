@@ -1,8 +1,8 @@
 {
-  "name": "studio",
+  "name": "wellness",
   "version": "0.0.0",
   "private": true,
-  "description": "Multi-tenant studio booking platform on PAS.",
+  "description": "Wellness — multi-tenant studio booking platform on PAS.",
   "type": "module",
   "license": "MIT",
   "scripts": {

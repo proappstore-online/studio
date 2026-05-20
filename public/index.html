@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>studio — sign in</title>
+<title>wellness — sign in</title>
 <style>
   :root {
     --fg: #0f172a;
@@ -94,7 +94,7 @@
 <body>
 <main>
   <section id="home-header">
-    <h1>studio</h1>
+    <h1>wellness</h1>
     <p class="lede">Book classes, manage clients, run your studio.</p>
   </section>
 
@@ -119,7 +119,7 @@
       <div class="avatar" id="avatar"></div>
       <div class="who">
         <strong id="who-name"></strong>
-        <small>Signed in to studio</small>
+        <small>Signed in to wellness</small>
       </div>
       <button type="button" id="btn-signout" style="background:white;color:var(--fg);border:1px solid var(--border);padding:.5rem .75rem">Sign out</button>
     </div>
@@ -158,16 +158,16 @@
   </section>
 
   <section id="public-view" hidden>
-    <a href="/" class="nav-home">← studio directory</a>
+    <a href="/" class="nav-home">← wellness directory</a>
     <div id="public-hero" class="public-hero"></div>
     <div class="public-footer">
       Booking opens soon. This studio is hosted on
-      <a href="/" style="color:var(--accent)">studio</a> — multi-tenant booking platform.
+      <a href="/" style="color:var(--accent)">wellness</a> — multi-tenant booking platform.
     </div>
   </section>
 
   <section id="notfound-view" hidden>
-    <a href="/" class="nav-home">← studio directory</a>
+    <a href="/" class="nav-home">← wellness directory</a>
     <div class="public-hero">
       <h1>Not found</h1>
       <p class="desc">No studio at this URL — it may have been renamed or never existed.</p>
@@ -276,8 +276,8 @@
 <script type="module">
   const FAS_API = 'https://api.freeappstore.online';
   const PAS_API = 'https://api.proappstore.online';
-  const STUDIO_API = 'https://data-studio.proappstore.online';
-  const APP_ID = 'studio';
+  const DATA_API = 'https://data-wellness.proappstore.online';
+  const APP_ID = 'wellness';
   const SESSION_KEY = 'fas:session';
 
   const homeHeader = document.getElementById('home-header');
@@ -383,7 +383,7 @@
 
   async function dbQuery(sql, params) {
     if (!session) throw new Error('Not signed in.');
-    const res = await fetch(STUDIO_API + '/query', {
+    const res = await fetch(DATA_API + '/query', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer ' + session.token,
@@ -397,7 +397,7 @@
 
   async function dbExecute(sql, params) {
     if (!session) throw new Error('Not signed in.');
-    const res = await fetch(STUDIO_API + '/execute', {
+    const res = await fetch(DATA_API + '/execute', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer ' + session.token,
@@ -615,7 +615,7 @@
     }
 
     // Load studio and check ownership in one query.
-    const res = await fetch(STUDIO_API + '/query', {
+    const res = await fetch(DATA_API + '/query', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer ' + token,
@@ -950,7 +950,7 @@
     signinView.hidden = true;
     signedInView.hidden = true;
     try {
-      const res = await fetch(STUDIO_API + '/public/studios/' + encodeURIComponent(slug));
+      const res = await fetch(DATA_API + '/public/studios/' + encodeURIComponent(slug));
       if (res.status === 404) {
         notfoundView.hidden = false;
         document.title = 'Not found — studio';
@@ -1275,7 +1275,7 @@
 
   async function dbBatch(statements) {
     if (!session) throw new Error('Not signed in.');
-    const res = await fetch(STUDIO_API + '/batch', {
+    const res = await fetch(DATA_API + '/batch', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer ' + session.token,

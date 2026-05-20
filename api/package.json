@@ -1,8 +1,8 @@
 {
-  "name": "studio-api",
+  "name": "wellness-api",
   "version": "0.0.0",
   "private": true,
-  "description": "Studio data-worker — proxies SQL to studio's shared D1, auths via FAS.",
+  "description": "Wellness data-worker — proxies SQL to the wellness D1, auths via FAS.",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

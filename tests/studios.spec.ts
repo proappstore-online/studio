@@ -2,9 +2,9 @@ import { expect, test, type Route } from '@playwright/test';
 
 const FAS_API = 'https://api.freeappstore.online';
 const PAS_API_GENERATE = 'https://api.proappstore.online/v1/ai/generate';
-const STUDIO_API_QUERY = /data-studio\.proappstore\.online\/query/;
-const STUDIO_API_EXECUTE = /data-studio\.proappstore\.online\/execute/;
-const STUDIO_API_PUBLIC = /data-studio\.proappstore\.online\/public\/studios/;
+const STUDIO_API_QUERY = /data-wellness\.proappstore\.online\/query/;
+const STUDIO_API_EXECUTE = /data-wellness\.proappstore\.online\/execute/;
+const STUDIO_API_PUBLIC = /data-wellness\.proappstore\.online\/public\/studios/;
 
 const USER = { id: 'gh:42', login: 'alice', avatarUrl: null };
 
@@ -833,7 +833,7 @@ test.describe('schedules + upcoming sessions', () => {
       executed = true;
       return route.fulfill({ status: 200, body: '{}' });
     });
-    await page.route(/data-studio\.proappstore\.online\/batch/, (route) => {
+    await page.route(/data-wellness\.proappstore\.online\/batch/, (route) => {
       executed = true;
       return route.fulfill({ status: 200, body: '{}' });
     });
@@ -857,7 +857,7 @@ test.describe('schedules + upcoming sessions', () => {
       ],
       onSessionQueryCall: () => sessionQueryCount++,
     });
-    await page.route(/data-studio\.proappstore\.online\/batch/, async (route) => {
+    await page.route(/data-wellness\.proappstore\.online\/batch/, async (route) => {
       batchCall = JSON.parse(route.request().postData()!);
       await route.fulfill({
         status: 200,
