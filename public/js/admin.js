@@ -14,6 +14,7 @@ import { flash, clearFlash } from './flash.js';
 
 export async function renderAdmin(slug) {
   dom['home-header'].hidden = true;
+  dom['landing-section'].hidden = true;
   dom['signin-view'].hidden = true;
   dom['signed-in-view'].hidden = true;
 
@@ -73,7 +74,10 @@ export async function renderAdmin(slug) {
   dom['admin-view'].hidden = false;
   document.title = studio.name + ' · admin — wellness';
 
+  document.getElementById('gs-public-link').href = '/' + studio.slug;
+
   await Promise.all([loadClasses(), loadInstructors(), loadSchedules(), loadSessions()]);
+  updateGettingStarted();
 }
 
 // -------------------------------------------------------------------------
@@ -410,7 +414,10 @@ async function loadSessions() {
   const { rows } = await dbQuery(
     `SELECT s.id, s.starts_at, s.ends_at, s.capacity, s.location, s.status,
             c.name AS class_name, c.color AS class_color, c.category AS class_category,
-            st.name AS instructor_name
+            st.name AS instructor_name,
+            (SELECT COUNT(*) FROM bookings b
+              WHERE b.tenant_id = s.tenant_id AND b.session_id = s.id AND b.status = 'confirmed'
+            ) AS booked
      FROM sessions s
      LEFT JOIN class_types c ON c.id = s.class_type_id AND c.tenant_id = s.tenant_id
      LEFT JOIN staff st     ON st.id = s.instructor_id AND st.tenant_id = s.tenant_id
@@ -464,18 +471,30 @@ function renderWeekView(rows) {
       col.appendChild(empty);
     } else {
       for (const r of items) {
-        const cell = document.createElement('div');
+        const cell = document.createElement('button');
+        cell.type = 'button';
         cell.className = 'week-cell';
         cell.style.borderLeftColor = r.class_color || 'var(--accent)';
+        cell.dataset.sessionId = r.id;
         const t = document.createElement('span');
         t.className = 't';
         t.textContent = timeFmt.format(new Date(r.starts_at));
         const n = document.createElement('span');
         n.className = 'n';
         n.textContent = r.class_name || 'Class';
-        n.title = (r.class_name || 'Class') + (r.instructor_name ? ' · ' + r.instructor_name : '') + ' · ' + r.capacity + ' spots';
+        const cap = document.createElement('span');
+        cap.className = 'cap';
+        const booked = Number(r.booked) || 0;
+        cap.textContent = booked + '/' + r.capacity;
+        if (booked >= r.capacity) cap.classList.add('full');
+        else if (booked > 0) cap.classList.add('some');
+        cell.title = (r.class_name || 'Class')
+          + (r.instructor_name ? ' · ' + r.instructor_name : '')
+          + ' · ' + booked + '/' + r.capacity + ' booked';
         cell.appendChild(t);
         cell.appendChild(n);
+        cell.appendChild(cap);
+        cell.addEventListener('click', () => showAttendees(r));
         col.appendChild(cell);
       }
     }
@@ -484,10 +503,140 @@ function renderWeekView(rows) {
 }
 
 // -------------------------------------------------------------------------
+// Attendees panel
+// -------------------------------------------------------------------------
+
+let activeAttendeeCell = null;
+
+async function showAttendees(session) {
+  if (!S.currentStudio) return;
+  const panel = dom['attendees-panel'];
+  const title = dom['attendees-title'];
+  const sub = dom['attendees-sub'];
+  const empty = dom['attendees-empty'];
+  const list = dom['attendees-list'];
+
+  // Highlight the active cell.
+  if (activeAttendeeCell) activeAttendeeCell.classList.remove('active');
+  const cell = dom['week-view'].querySelector(`.week-cell[data-session-id="${session.id}"]`);
+  if (cell) cell.classList.add('active');
+  activeAttendeeCell = cell;
+
+  const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+  const start = new Date(session.starts_at);
+  title.textContent = session.class_name || 'Class';
+  sub.textContent = ' · ' + dayFmt.format(start) + ' at ' + timeFmt.format(start);
+
+  panel.hidden = false;
+  list.replaceChildren();
+  list.hidden = true;
+  empty.hidden = true;
+  dom['attendees-close'].focus();
+
+  try {
+    const { rows } = await dbQuery(
+      `SELECT b.id, b.status, b.booked_at, b.checked_in_at, b.source,
+              c.name AS client_name, c.email AS client_email, c.user_id AS client_user_id
+       FROM bookings b
+       JOIN clients c ON c.id = b.client_id AND c.tenant_id = b.tenant_id
+       WHERE b.tenant_id = ? AND b.session_id = ? AND b.status = 'confirmed'
+       ORDER BY b.booked_at`,
+      [S.currentStudio.id, session.id],
+    );
+
+    if (!rows || rows.length === 0) {
+      empty.hidden = false;
+      return;
+    }
+
+    list.hidden = false;
+    const bookedAtFmt = new Intl.DateTimeFormat(undefined, {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    });
+    for (const r of rows) {
+      const li = document.createElement('li');
+      li.className = 'attendee';
+
+      const avatar = document.createElement('div');
+      avatar.className = 'attendee-avatar';
+      avatar.textContent = (r.client_name || '?').slice(0, 1).toUpperCase();
+
+      const meta = document.createElement('div');
+      meta.className = 'attendee-meta';
+      const name = document.createElement('strong');
+      name.textContent = r.client_name || 'Guest';
+      const sub2 = document.createElement('small');
+      const parts = [];
+      if (r.client_email) parts.push(r.client_email);
+      parts.push('booked ' + bookedAtFmt.format(new Date(r.booked_at)));
+      if (r.source) parts.push('via ' + r.source);
+      sub2.textContent = parts.join(' · ');
+      meta.appendChild(name);
+      meta.appendChild(sub2);
+
+      li.appendChild(avatar);
+      li.appendChild(meta);
+      list.appendChild(li);
+    }
+  } catch (err) {
+    empty.hidden = false;
+    empty.textContent = 'Could not load attendees: ' + err;
+  }
+}
+
+function closeAttendees() {
+  const returnFocusTo = activeAttendeeCell;
+  if (activeAttendeeCell) {
+    activeAttendeeCell.classList.remove('active');
+    activeAttendeeCell = null;
+  }
+  dom['attendees-panel'].hidden = true;
+  if (returnFocusTo) returnFocusTo.focus();
+}
+
+// -------------------------------------------------------------------------
+// Getting-started checklist
+// -------------------------------------------------------------------------
+
+function updateGettingStarted() {
+  const key = 'wellness:gs-dismissed:' + S.currentStudio?.id;
+  if (localStorage.getItem(key)) return;
+
+  const hasClasses = S.classTypesCache.length > 0;
+  const hasInstructors = S.instructorsCache.length > 0;
+  const hasSchedules = dom['schedules-list'].children.length > 0;
+
+  document.getElementById('gs-classes').classList.toggle('done', hasClasses);
+  document.getElementById('gs-instructors').classList.toggle('done', hasInstructors);
+  document.getElementById('gs-schedules').classList.toggle('done', hasSchedules);
+
+  if (hasClasses && hasInstructors && hasSchedules) {
+    document.getElementById('gs-public').classList.add('done');
+    dom['getting-started'].hidden = true;
+    return;
+  }
+
+  dom['getting-started'].hidden = false;
+}
+
+// -------------------------------------------------------------------------
 // Form handlers
 // -------------------------------------------------------------------------
 
 export function bindAdminHandlers() {
+  document.getElementById('gs-dismiss').addEventListener('click', () => {
+    if (S.currentStudio) {
+      localStorage.setItem('wellness:gs-dismissed:' + S.currentStudio.id, '1');
+    }
+    dom['getting-started'].hidden = true;
+  });
+
+  document.getElementById('attendees-close').addEventListener('click', closeAttendees);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !dom['attendees-panel'].hidden) closeAttendees();
+  });
+
   document.getElementById('class-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     clearFlash(dom['admin-status']);
@@ -523,6 +672,7 @@ export function bindAdminHandlers() {
       document.getElementById('class-capacity').value = 20;
       document.getElementById('class-color').value = '#6366f1';
       await loadClasses();
+      updateGettingStarted();
     } catch (err) {
       flash(dom['admin-status'], 'err', String(err));
     }
@@ -550,6 +700,7 @@ export function bindAdminHandlers() {
       flash(dom['instructor-status'], 'ok', 'Added ' + name + '.');
       document.getElementById('instructor-form').reset();
       await loadInstructors();
+      updateGettingStarted();
     } catch (err) {
       flash(dom['instructor-status'], 'err', String(err));
     }
@@ -656,6 +807,7 @@ export function bindAdminHandlers() {
       document.getElementById('schedule-form').reset();
       document.getElementById('schedule-time').value = '18:00';
       await Promise.all([loadSchedules(), loadSessions()]);
+      updateGettingStarted();
     } catch (err) {
       flash(dom['schedule-status'], 'err', String(err));
     }

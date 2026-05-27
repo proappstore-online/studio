@@ -176,6 +176,193 @@ app.get('/public/studios/:slug/sessions', async (c) => {
   return c.json(result.results);
 });
 
+// ---------------------------------------------------------------------------
+// Public booking endpoints
+// ---------------------------------------------------------------------------
+
+app.get('/public/studios/:slug/sessions/:sessionId/bookings/count', async (c) => {
+  const slug = c.req.param('slug');
+  const sessionId = c.req.param('sessionId');
+  if (!SLUG_RE.test(slug)) return c.text('invalid slug', 400);
+  const studio = await c.env.DB.prepare('SELECT id FROM studios WHERE slug = ? LIMIT 1')
+    .bind(slug)
+    .first<{ id: string }>();
+  if (!studio) return c.text('not found', 404);
+  const row = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS booked FROM bookings
+     WHERE tenant_id = ? AND session_id = ? AND status = 'confirmed'`,
+  )
+    .bind(studio.id, sessionId)
+    .first<{ booked: number }>();
+  return c.json({ booked: row?.booked ?? 0 });
+});
+
+app.post('/public/studios/:slug/sessions/:sessionId/book', async (c) => {
+  const slug = c.req.param('slug');
+  const sessionId = c.req.param('sessionId');
+  if (!SLUG_RE.test(slug)) return c.text('invalid slug', 400);
+
+  const user = await requireUser(c);
+
+  const studio = await c.env.DB.prepare('SELECT id FROM studios WHERE slug = ? LIMIT 1')
+    .bind(slug)
+    .first<{ id: string }>();
+  if (!studio) return c.text('studio not found', 404);
+
+  const session = await c.env.DB.prepare(
+    `SELECT id, capacity, status, starts_at FROM sessions WHERE id = ? AND tenant_id = ? LIMIT 1`,
+  )
+    .bind(sessionId, studio.id)
+    .first<{ id: string; capacity: number; status: string; starts_at: number }>();
+  if (!session) return c.text('session not found', 404);
+  if (session.status !== 'scheduled') return c.json({ error: 'session is not open for booking' }, 400);
+  if (session.starts_at <= Date.now()) return c.json({ error: 'session has already started' }, 400);
+
+  const booked = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS cnt FROM bookings
+     WHERE tenant_id = ? AND session_id = ? AND status = 'confirmed'`,
+  )
+    .bind(studio.id, sessionId)
+    .first<{ cnt: number }>();
+  if ((booked?.cnt ?? 0) >= session.capacity) return c.json({ error: 'class is full' }, 409);
+
+  let client = await c.env.DB.prepare(
+    'SELECT id FROM clients WHERE tenant_id = ? AND user_id = ? LIMIT 1',
+  )
+    .bind(studio.id, user.id)
+    .first<{ id: string }>();
+
+  const now = Date.now();
+  if (!client) {
+    const clientId = crypto.randomUUID();
+    await c.env.DB.prepare(
+      `INSERT INTO clients (id, tenant_id, user_id, name, created_at) VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind(clientId, studio.id, user.id, user.login, now)
+      .run();
+    client = { id: clientId };
+  }
+
+  const existing = await c.env.DB.prepare(
+    `SELECT id, status FROM bookings WHERE session_id = ? AND client_id = ? LIMIT 1`,
+  )
+    .bind(sessionId, client.id)
+    .first<{ id: string; status: string }>();
+
+  if (existing && existing.status === 'confirmed') {
+    return c.json({ error: 'already booked' }, 409);
+  }
+
+  let bookingId: string;
+  if (existing) {
+    // Any non-confirmed status (cancelled, waitlisted, no_show, attended) → re-activate.
+    // The UNIQUE (session_id, client_id) constraint means we can't INSERT a second row.
+    bookingId = existing.id;
+    await c.env.DB.prepare(
+      `UPDATE bookings SET status = 'confirmed', booked_at = ?, cancelled_at = NULL WHERE id = ?`,
+    )
+      .bind(now, bookingId)
+      .run();
+  } else {
+    bookingId = crypto.randomUUID();
+    await c.env.DB.prepare(
+      `INSERT INTO bookings (id, tenant_id, session_id, client_id, status, booked_at, source)
+       VALUES (?, ?, ?, ?, 'confirmed', ?, 'web')`,
+    )
+      .bind(bookingId, studio.id, sessionId, client.id, now)
+      .run();
+  }
+
+  // D1 has no multi-statement transactions, so the COUNT-then-INSERT above has a
+  // small race window where two concurrent requests can both pass the capacity
+  // check. Re-count after the write and roll our own row back if we tipped over.
+  const after = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS cnt FROM bookings
+     WHERE tenant_id = ? AND session_id = ? AND status = 'confirmed'`,
+  )
+    .bind(studio.id, sessionId)
+    .first<{ cnt: number }>();
+  if ((after?.cnt ?? 0) > session.capacity) {
+    await c.env.DB.prepare(
+      `UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ?`,
+    )
+      .bind(Date.now(), bookingId)
+      .run();
+    return c.json({ error: 'class is full' }, 409);
+  }
+
+  return c.json({ bookingId, status: 'confirmed' }, existing ? 200 : 201);
+});
+
+app.post('/public/studios/:slug/sessions/:sessionId/cancel', async (c) => {
+  const slug = c.req.param('slug');
+  const sessionId = c.req.param('sessionId');
+  if (!SLUG_RE.test(slug)) return c.text('invalid slug', 400);
+
+  const user = await requireUser(c);
+
+  const studio = await c.env.DB.prepare('SELECT id FROM studios WHERE slug = ? LIMIT 1')
+    .bind(slug)
+    .first<{ id: string }>();
+  if (!studio) return c.text('studio not found', 404);
+
+  const client = await c.env.DB.prepare(
+    'SELECT id FROM clients WHERE tenant_id = ? AND user_id = ? LIMIT 1',
+  )
+    .bind(studio.id, user.id)
+    .first<{ id: string }>();
+  if (!client) return c.json({ error: 'no booking found' }, 404);
+
+  const result = await c.env.DB.prepare(
+    `UPDATE bookings SET status = 'cancelled', cancelled_at = ?
+     WHERE tenant_id = ? AND session_id = ? AND client_id = ? AND status = 'confirmed'`,
+  )
+    .bind(Date.now(), studio.id, sessionId, client.id)
+    .run();
+
+  if (result.meta.changes === 0) return c.json({ error: 'no active booking found' }, 404);
+  return c.json({ status: 'cancelled' });
+});
+
+app.get('/public/studios/:slug/my-bookings', async (c) => {
+  const slug = c.req.param('slug');
+  if (!SLUG_RE.test(slug)) return c.text('invalid slug', 400);
+
+  const user = await requireUser(c);
+
+  const studio = await c.env.DB.prepare('SELECT id FROM studios WHERE slug = ? LIMIT 1')
+    .bind(slug)
+    .first<{ id: string }>();
+  if (!studio) return c.text('studio not found', 404);
+
+  const client = await c.env.DB.prepare(
+    'SELECT id FROM clients WHERE tenant_id = ? AND user_id = ? LIMIT 1',
+  )
+    .bind(studio.id, user.id)
+    .first<{ id: string }>();
+  if (!client) return c.json([]);
+
+  const result = await c.env.DB.prepare(
+    `SELECT b.id, b.session_id, b.status, b.booked_at,
+            s.starts_at, s.ends_at, s.location,
+            c.name AS class_name, c.color AS class_color
+     FROM bookings b
+     JOIN sessions s ON s.id = b.session_id AND s.tenant_id = b.tenant_id
+     LEFT JOIN class_types c ON c.id = s.class_type_id AND c.tenant_id = s.tenant_id
+     WHERE b.tenant_id = ? AND b.client_id = ? AND b.status = 'confirmed'
+       AND s.starts_at >= ?
+     ORDER BY s.starts_at`,
+  )
+    .bind(studio.id, client.id, Date.now())
+    .all();
+
+  return c.json(result.results);
+});
+
+// ---------------------------------------------------------------------------
+// Authenticated D1 proxy
+// ---------------------------------------------------------------------------
+
 app.get('/tables', async (c) => {
   await requireUser(c);
   const result = await c.env.DB.prepare(

@@ -1,7 +1,7 @@
 // Signed-in dashboard: list of studios, create-studio form with AI suggest,
 // inline edit per card. Triggered by capture() once a session exists.
 
-import { S, dom } from './state.js';
+import { DATA_API, S, dom } from './state.js';
 import { dbQuery, dbExecute, aiGenerate } from './api.js';
 import { flash, clearFlash } from './flash.js';
 
@@ -17,6 +17,8 @@ export function showSignedIn(user) {
     dom.avatar.textContent = (user.login || '?').slice(0, 1).toUpperCase();
   }
   dom.signinView.hidden = true;
+  dom['landing-section'].hidden = true;
+  dom['directory-view'].hidden = true;
   dom['signed-in-view'].hidden = false;
   loadStudios().catch((err) => flash(dom['create-status'], 'err', String(err)));
 }
@@ -24,7 +26,46 @@ export function showSignedIn(user) {
 export function showSignin() {
   dom['signed-in-view'].hidden = true;
   dom.signinView.hidden = false;
+  dom['landing-section'].hidden = false;
+  dom['directory-view'].hidden = true;
   S.session = null;
+}
+
+export async function loadDirectory() {
+  try {
+    const res = await fetch(DATA_API + '/public/studios?limit=50');
+    if (!res.ok) return;
+    const rows = await res.json();
+    const list = dom['directory-list'];
+    const empty = dom['directory-empty'];
+    list.replaceChildren();
+    if (!Array.isArray(rows) || rows.length === 0) {
+      empty.hidden = false;
+      list.hidden = true;
+      dom['directory-view'].hidden = false;
+      return;
+    }
+    empty.hidden = true;
+    list.hidden = false;
+    for (const r of rows) {
+      const a = document.createElement('a');
+      a.className = 'directory-card';
+      a.href = '/' + r.slug;
+      const strong = document.createElement('strong');
+      strong.textContent = r.name;
+      a.appendChild(strong);
+      if (r.description) {
+        const p = document.createElement('p');
+        p.textContent = r.description;
+        a.appendChild(p);
+      }
+      const small = document.createElement('small');
+      small.textContent = [r.timezone, r.currency].filter(Boolean).join(' · ');
+      a.appendChild(small);
+      list.appendChild(a);
+    }
+    dom['directory-view'].hidden = false;
+  } catch { /* ignore */ }
 }
 
 function slugify(name) {
@@ -212,6 +253,7 @@ export function bindHomeHandlers() {
     const timezone = document.getElementById('studio-tz').value.trim() || 'UTC';
     const currency =
       (document.getElementById('studio-currency').value.trim() || 'AUD').toUpperCase();
+    const brandColor = document.getElementById('studio-brand-color').value || null;
 
     const id = crypto.randomUUID();
     const slug = slugify(name) || id.slice(0, 8);
@@ -219,9 +261,9 @@ export function bindHomeHandlers() {
     try {
       flash(dom['create-status'], 'ok', 'Creating ' + name + '…');
       await dbExecute(
-        `INSERT INTO studios (id, slug, name, description, owner_user_id, timezone, currency, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, slug, name, description, S.session.user.id, timezone, currency, Date.now()],
+        `INSERT INTO studios (id, slug, name, description, owner_user_id, timezone, currency, brand_color, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, slug, name, description, S.session.user.id, timezone, currency, brandColor, Date.now()],
       );
       flash(dom['create-status'], 'ok', 'Created ' + name + '. It now appears in your studios.');
       document.getElementById('create-form').reset();

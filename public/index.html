@@ -3,14 +3,61 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>wellness — sign in</title>
+<title>Wellness — Studio booking platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 <main>
   <section id="home-header">
-    <h1>wellness</h1>
-    <p class="lede">Book classes, manage clients, run your studio.</p>
+    <div class="hero">
+      <h1>Wellness</h1>
+      <p class="hero-sub">The simplest way to run your studio</p>
+      <p class="hero-body">Schedule classes, manage instructors, and let clients find you online. Set up in under five minutes, free to start.</p>
+    </div>
+  </section>
+
+  <section id="landing-section">
+    <div class="features">
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>
+        </div>
+        <strong>Class scheduling</strong>
+        <p>Recurring weekly timetables with capacity limits. Sessions auto-generate four weeks ahead.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <strong>Instructor roster</strong>
+        <p>Add your teaching team, assign them to classes, and show them on your public page.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        </div>
+        <strong>Your own booking page</strong>
+        <p>A clean public page at <em>wellness.proappstore.online/your-studio</em> that clients can bookmark and share.</p>
+      </div>
+    </div>
+
+    <div class="how-it-works">
+      <div class="step">
+        <span class="step-num">1</span>
+        <div><strong>Sign in</strong><br>Email, Google, or GitHub. No credit card required.</div>
+      </div>
+      <div class="step">
+        <span class="step-num">2</span>
+        <div><strong>Create your studio</strong><br>Name it, pick your timezone, and write a short description.</div>
+      </div>
+      <div class="step">
+        <span class="step-num">3</span>
+        <div><strong>Go live</strong><br>Add class types, set a schedule, and your public page is ready to share.</div>
+      </div>
+    </div>
   </section>
 
   <section id="signin-view">
@@ -66,15 +113,32 @@
           <input id="studio-currency" name="currency" type="text" placeholder="AUD" maxlength="3">
         </div>
       </div>
+
+      <label for="studio-brand-color">Brand color (optional)</label>
+      <input id="studio-brand-color" type="color" value="#7c6a5c" style="height:2.5rem;padding:.25rem;width:5rem">
+
       <button type="submit">Create studio</button>
     </form>
 
     <div id="create-status" class="status" hidden></div>
   </section>
 
+  <section id="directory-view" hidden>
+    <h2>Browse studios</h2>
+    <div id="directory-list" class="studios-list"></div>
+    <div id="directory-empty" class="empty" hidden>No studios yet. Be the first to create one.</div>
+  </section>
+
   <section id="public-view" hidden>
     <a href="/" class="nav-home">← wellness directory</a>
     <div id="public-hero" class="public-hero"></div>
+
+    <div id="public-auth" hidden></div>
+
+    <section id="my-bookings-section" hidden>
+      <h2 style="margin-top:1.5rem">My upcoming bookings</h2>
+      <div id="my-bookings-list" class="my-bookings-list"></div>
+    </section>
 
     <h2 style="margin-top:1.5rem">Upcoming classes</h2>
     <div id="public-sessions-empty" class="empty" hidden>
@@ -104,6 +168,17 @@
         <small id="admin-studio-slug"></small>
       </div>
       <a id="admin-public-link" href="#" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem;text-decoration:none">View public page →</a>
+    </div>
+
+    <div id="getting-started" class="getting-started" hidden>
+      <h2 class="gs-title">Getting started</h2>
+      <ul class="gs-checklist">
+        <li id="gs-classes" class="gs-item"><a href="#class-form">Add your first class type</a></li>
+        <li id="gs-instructors" class="gs-item"><a href="#instructor-form">Add an instructor</a></li>
+        <li id="gs-schedules" class="gs-item"><a href="#schedule-form">Create a recurring schedule</a></li>
+        <li id="gs-public" class="gs-item"><a id="gs-public-link" href="#">Check your public page</a></li>
+      </ul>
+      <button type="button" id="gs-dismiss" class="card-btn" style="margin-top:.5rem">Dismiss</button>
     </div>
 
     <h2>Class types</h2>
@@ -223,10 +298,25 @@
     <div id="schedule-status" class="status" hidden></div>
 
     <h2 style="margin-top:2rem">Calendar — next 7 days</h2>
+    <p style="color:var(--muted);font-size:.85rem;margin:0 0 .75rem">
+      Click a class to see who's booked.
+    </p>
     <div id="sessions-empty" class="empty" hidden>
       No upcoming sessions. Add a schedule above to generate them.
     </div>
     <div id="week-view" class="week-view" hidden></div>
+
+    <div id="attendees-panel" class="attendees-panel" role="region" aria-labelledby="attendees-title" hidden>
+      <div class="attendees-header">
+        <div>
+          <strong id="attendees-title">Attendees</strong>
+          <small id="attendees-sub"></small>
+        </div>
+        <button type="button" id="attendees-close" class="card-btn" aria-label="Close attendees panel">×</button>
+      </div>
+      <div id="attendees-empty" class="empty" hidden>No bookings yet for this class.</div>
+      <ul id="attendees-list" class="attendees-list" hidden></ul>
+    </div>
   </section>
 </main>
 

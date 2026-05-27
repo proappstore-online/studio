@@ -5,9 +5,9 @@ const FAS_API = 'https://api.freeappstore.online';
 test.describe('studio sign-in page', () => {
   test('renders title, lede, and both sign-in surfaces', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveTitle(/wellness/);
-    await expect(page.getByRole('heading', { name: 'wellness' })).toBeVisible();
-    await expect(page.getByText(/Book classes, manage clients/)).toBeVisible();
+    await expect(page).toHaveTitle(/Wellness/i);
+    await expect(page.getByRole('heading', { name: 'Wellness' })).toBeVisible();
+    await expect(page.getByText(/simplest way to run your studio/)).toBeVisible();
 
     // Both form + OAuth are visible on initial load
     await expect(page.locator('#email')).toBeVisible();

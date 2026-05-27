@@ -199,15 +199,16 @@ test.describe('studio creation', () => {
     expect(captured.sql).toContain('INSERT INTO studios');
     expect(captured.sql).toContain('description');
     expect(captured.sql).toContain('owner_user_id');
-    // Bindings order: id, slug, name, description, owner_user_id, timezone, currency, created_at
+    // Bindings order: id, slug, name, description, owner_user_id, timezone, currency, brand_color, created_at
     expect(captured.params[1]).toBe('yoga-haus'); // slug derived from name
     expect(captured.params[2]).toBe('Yoga Haus'); // name
     expect(captured.params[3]).toBe('Warm room, warmer people.'); // description
     expect(captured.params[4]).toBe('gh:42'); // owner = signed-in user.id
     expect(captured.params[5]).toBe('Australia/Sydney');
     expect(captured.params[6]).toBe('AUD'); // currency upper-cased
+    expect(captured.params[7]).toBe('#7c6a5c'); // brand_color from color picker default
     expect(typeof captured.params[0]).toBe('string'); // UUID id
-    expect(typeof captured.params[7]).toBe('number'); // created_at ms
+    expect(typeof captured.params[8]).toBe('number'); // created_at ms
   });
 
   test('shows a clear error when slug conflicts (UNIQUE constraint)', async ({ page }) => {
@@ -942,5 +943,280 @@ test.describe('schedules + upcoming sessions', () => {
     await expect(tomorrowCells).toHaveCount(2);
     await expect(tomorrowCells.nth(0)).toContainText('Sunrise Vinyasa');
     await expect(tomorrowCells.nth(1)).toContainText('Evening Yin');
+  });
+
+  test('week-view cells show booking counts and are clickable', async ({ page }) => {
+    const oneHour = 60 * 60 * 1000;
+    const tomorrow9am = new Date();
+    tomorrow9am.setDate(tomorrow9am.getDate() + 1);
+    tomorrow9am.setHours(9, 0, 0, 0);
+
+    await signedIn(page);
+    await adminRouter(page, {
+      studio: { id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' },
+      sessions: [
+        {
+          id: 'sess1',
+          starts_at: tomorrow9am.getTime(),
+          ends_at: tomorrow9am.getTime() + oneHour,
+          capacity: 12,
+          location: 'Main studio',
+          status: 'scheduled',
+          class_name: 'Sunrise Vinyasa',
+          class_color: '#ff0000',
+          booked: 3,
+        },
+      ],
+    });
+    await page.goto('/yoga-haus/admin');
+
+    const cell = page.locator('.week-cell').filter({ hasText: 'Sunrise Vinyasa' });
+    await expect(cell).toBeVisible();
+    await expect(cell.locator('.cap')).toHaveText('3/12');
+    // 0 < booked < capacity → "some" state
+    await expect(cell.locator('.cap')).toHaveClass(/some/);
+    // Element is a button so it's keyboard-focusable
+    await expect(cell).toHaveJSProperty('tagName', 'BUTTON');
+  });
+
+  test('clicking a session cell opens the attendees panel', async ({ page }) => {
+    const oneHour = 60 * 60 * 1000;
+    const tomorrow9am = new Date();
+    tomorrow9am.setDate(tomorrow9am.getDate() + 1);
+    tomorrow9am.setHours(9, 0, 0, 0);
+
+    await signedIn(page);
+
+    let bookingsQueryCount = 0;
+    await page.route(STUDIO_API_QUERY, (route) => {
+      const body = JSON.parse(route.request().postData()!) as { sql: string; params?: unknown[] };
+      if (body.sql.includes('FROM studios')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: [{ id: 'a', slug: 'yoga-haus', name: 'Yoga Haus', owner_user_id: 'gh:42' }],
+            meta: { changes: 0, duration: 0 },
+          }),
+        });
+      }
+      // attendees query is the only one that JOINs clients; check it before
+      // the sessions branch (sessions's subselect also says `FROM bookings b`).
+      if (body.sql.includes('JOIN clients c')) {
+        bookingsQueryCount++;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: [
+              {
+                id: 'b1',
+                status: 'confirmed',
+                booked_at: Date.now() - 3600_000,
+                source: 'web',
+                client_name: 'Jess Reed',
+                client_email: 'jess@example.com',
+                client_user_id: 'gh:101',
+              },
+              {
+                id: 'b2',
+                status: 'confirmed',
+                booked_at: Date.now() - 1800_000,
+                source: 'web',
+                client_name: 'Sam Lee',
+                client_email: null,
+                client_user_id: 'gh:102',
+              },
+            ],
+            meta: { changes: 0, duration: 0 },
+          }),
+        });
+      }
+      if (body.sql.includes('FROM sessions')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: [
+              {
+                id: 'sess1',
+                starts_at: tomorrow9am.getTime(),
+                ends_at: tomorrow9am.getTime() + oneHour,
+                capacity: 10,
+                location: 'Main studio',
+                status: 'scheduled',
+                class_name: 'Sunrise Vinyasa',
+                class_color: '#7c6a5c',
+                booked: 2,
+              },
+            ],
+            meta: { changes: 0, duration: 0 },
+          }),
+        });
+      }
+      return route.fulfill({ status: 200, body: '{"rows":[]}' });
+    });
+
+    await page.goto('/yoga-haus/admin');
+
+    // Panel starts hidden
+    await expect(page.locator('#attendees-panel')).toBeHidden();
+
+    await page.locator('.week-cell').filter({ hasText: 'Sunrise Vinyasa' }).click();
+
+    await expect(page.locator('#attendees-panel')).toBeVisible();
+    await expect(page.locator('#attendees-title')).toHaveText('Sunrise Vinyasa');
+    const items = page.locator('.attendee');
+    await expect(items).toHaveCount(2);
+    await expect(items.nth(0)).toContainText('Jess Reed');
+    await expect(items.nth(0)).toContainText('jess@example.com');
+    await expect(items.nth(1)).toContainText('Sam Lee');
+    // The clicked cell is highlighted
+    await expect(page.locator('.week-cell.active')).toHaveCount(1);
+    expect(bookingsQueryCount).toBe(1);
+
+    // Close button hides the panel and clears the highlight.
+    await page.locator('#attendees-close').click();
+    await expect(page.locator('#attendees-panel')).toBeHidden();
+    await expect(page.locator('.week-cell.active')).toHaveCount(0);
+  });
+});
+
+test.describe('public booking flow', () => {
+  test('shows inline email sign-in form (no window.prompt) for guests', async ({ page }) => {
+    await page.route(STUDIO_API_PUBLIC, (route) => {
+      const url = route.request().url();
+      if (url.endsWith('/public/studios/yoga-haus')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 'a',
+            slug: 'yoga-haus',
+            name: 'Yoga Haus',
+            timezone: 'Australia/Sydney',
+            currency: 'AUD',
+          }),
+        });
+      }
+      return route.fulfill({ status: 200, body: '[]' });
+    });
+
+    await page.goto('/yoga-haus');
+
+    await expect(page.locator('.public-auth-bar--signin')).toBeVisible();
+    await expect(page.locator('.pa-google')).toHaveText('Continue with Google');
+    await expect(page.locator('.pa-email-input')).toBeVisible();
+    await expect(page.locator('.pa-email-send')).toHaveText('Send sign-in link');
+    // No signed-in elements yet
+    await expect(page.locator('#my-bookings-section')).toBeHidden();
+  });
+
+  test('renders my-bookings + Book buttons when signed in', async ({ page }) => {
+    const oneHour = 60 * 60 * 1000;
+    const tomorrow9am = new Date();
+    tomorrow9am.setDate(tomorrow9am.getDate() + 1);
+    tomorrow9am.setHours(9, 0, 0, 0);
+    const dayAfter6pm = new Date(tomorrow9am);
+    dayAfter6pm.setDate(dayAfter6pm.getDate() + 1);
+    dayAfter6pm.setHours(18, 0, 0, 0);
+
+    await page.route(`${FAS_API}/v1/auth/me`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(USER),
+      }),
+    );
+    await page.addInitScript((u) => {
+      localStorage.setItem('fas:session', JSON.stringify({ token: 'cached-token', user: u }));
+    }, USER);
+
+    await page.route(STUDIO_API_PUBLIC, (route) => {
+      const url = route.request().url();
+      if (url.endsWith('/public/studios/yoga-haus')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 'a',
+            slug: 'yoga-haus',
+            name: 'Yoga Haus',
+            timezone: 'Australia/Sydney',
+            currency: 'AUD',
+          }),
+        });
+      }
+      if (url.includes('/my-bookings')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            {
+              id: 'b1',
+              session_id: 'sess1',
+              status: 'confirmed',
+              booked_at: Date.now() - 3600_000,
+              starts_at: tomorrow9am.getTime(),
+              ends_at: tomorrow9am.getTime() + oneHour,
+              location: 'Main studio',
+              class_name: 'Sunrise Vinyasa',
+              class_color: '#7c6a5c',
+            },
+          ]),
+        });
+      }
+      if (url.includes('/sessions')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            {
+              id: 'sess1',
+              starts_at: tomorrow9am.getTime(),
+              ends_at: tomorrow9am.getTime() + oneHour,
+              capacity: 12,
+              location: 'Main studio',
+              status: 'scheduled',
+              class_name: 'Sunrise Vinyasa',
+              class_color: '#7c6a5c',
+            },
+            {
+              id: 'sess2',
+              starts_at: dayAfter6pm.getTime(),
+              ends_at: dayAfter6pm.getTime() + oneHour,
+              capacity: 8,
+              location: null,
+              status: 'scheduled',
+              class_name: 'Evening Yin',
+              class_color: '#7c6a5c',
+            },
+          ]),
+        });
+      }
+      return route.fulfill({ status: 200, body: '[]' });
+    });
+
+    await page.goto('/yoga-haus');
+
+    // Signed-in bar (not the guest sign-in bar)
+    await expect(page.locator('.public-auth-bar:not(.public-auth-bar--signin)')).toBeVisible();
+    await expect(page.locator('.public-auth-bar:not(.public-auth-bar--signin)')).toContainText('alice');
+
+    // My bookings panel renders the one booking
+    await expect(page.locator('#my-bookings-section')).toBeVisible();
+    const bookings = page.locator('.my-booking');
+    await expect(bookings).toHaveCount(1);
+    await expect(bookings.first()).toContainText('Sunrise Vinyasa');
+    await expect(bookings.first()).toContainText('Main studio');
+    await expect(bookings.first().locator('.btn-cancel-booking')).toBeVisible();
+
+    // sess1 already booked → "Booked" button; sess2 not booked → "Book" button.
+    const bookedBtn = page.locator('.btn-booked');
+    const bookBtn = page.locator('.btn-book');
+    await expect(bookedBtn).toHaveCount(1);
+    await expect(bookedBtn).toHaveText('Booked');
+    await expect(bookBtn).toHaveCount(1);
+    await expect(bookBtn).toHaveText('Book');
   });
 });

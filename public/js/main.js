@@ -9,7 +9,7 @@
 
 import { dom } from './state.js';
 import { bindAuthHandlers, capture } from './auth.js';
-import { bindHomeHandlers } from './home.js';
+import { bindHomeHandlers, loadDirectory } from './home.js';
 import { bindAdminHandlers, renderAdmin } from './admin.js';
 import { renderPublicStudio } from './public-page.js';
 
@@ -34,12 +34,14 @@ function route() {
 const r = route();
 if (r.kind === 'home') {
   capture();
+  loadDirectory();
 } else if (r.kind === 'public') {
   renderPublicStudio(r.slug);
 } else if (r.kind === 'admin') {
   renderAdmin(r.slug);
 } else {
   dom['home-header'].hidden = true;
+  dom['landing-section'].hidden = true;
   dom['signin-view'].hidden = true;
   dom['notfound-view'].hidden = false;
 }
